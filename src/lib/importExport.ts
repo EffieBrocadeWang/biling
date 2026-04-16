@@ -113,7 +113,7 @@ export function chaptersToTxt(
 
   // Group by volume
   const volumeMap = new Map(volumes.map((v) => [v.id, v]));
-  let lastVolumeId: number | null = null;
+  let lastVolumeId: string | null = null;
 
   const sorted = [...chapters].sort((a, b) => {
     const va = volumeMap.get(a.volume_id);

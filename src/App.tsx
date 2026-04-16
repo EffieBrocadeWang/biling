@@ -3,13 +3,13 @@ import "./App.css";
 import { ProjectList } from "./components/project/ProjectList";
 import { EditorLayout } from "./components/layout/EditorLayout";
 import { useSettingsStore } from "./store/settingsStore";
-import type { Project } from "./types";
+import type { Book } from "./types";
 
 type View = "projects" | "editor";
 
 export default function App() {
   const [view, setView] = useState<View>("projects");
-  const [activeProject, setActiveProject] = useState<Project | null>(null);
+  const [activeProject, setActiveProject] = useState<Book | null>(null);
   const { theme, load, loaded } = useSettingsStore();
 
   useEffect(() => {
@@ -33,7 +33,7 @@ export default function App() {
     }
   }, [theme]);
 
-  function openProject(project: Project) {
+  function openProject(project: Book) {
     setActiveProject(project);
     setView("editor");
   }

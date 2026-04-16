@@ -10,13 +10,13 @@ const GENRES = [
 
 interface Props {
   onClose: () => void;
-  onCreated: (projectId: number) => void;
+  onCreated: (projectId: string) => void;
 }
 
 export function NewProjectModal({ onClose, onCreated }: Props) {
   const { createProject } = useProjectStore();
   const { writingRules, setWritingRules } = useSettingsStore();
-  const [name, setName] = useState("");
+  const [name, setName] = useState(""); // maps to 'title' field
   const [genre, setGenre] = useState("玄幻");
   const [synopsis, setSynopsis] = useState("");
   const [loadPreset, setLoadPreset] = useState(true);

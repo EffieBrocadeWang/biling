@@ -8,7 +8,7 @@ import { useSettingsStore } from "../../store/settingsStore";
 import { useOutlineStore } from "../../store/outlineStore";
 import { aiStream } from "../../lib/ai";
 import { buildSummaryPrompt } from "../../lib/context";
-import type { Snapshot } from "../../types";
+import type { ChapterSnapshot } from "../../types";
 
 const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000;
 const AUTOSAVE_DEBOUNCE_MS = 2000;
@@ -41,16 +41,16 @@ function formatTime(iso: string) {
 // ── Snapshot panel ─────────────────────────────────────────────────────────
 
 interface SnapshotPanelProps {
-  chapterId: number;
-  onRestore: (snapshot: Snapshot) => void;
+  chapterId: string;
+  onRestore: (snapshot: ChapterSnapshot) => void;
   onClose: () => void;
 }
 
 function SnapshotPanel({ chapterId, onRestore, onClose }: SnapshotPanelProps) {
   const { loadSnapshots } = useEditorStore();
-  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [snapshots, setSnapshots] = useState<ChapterSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
-  const [confirming, setConfirming] = useState<number | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
 
   useEffect(() => {
     loadSnapshots(chapterId).then((s) => {
@@ -264,7 +264,7 @@ export function ChapterEditor() {
   }, [handleKeyDown]);
 
   // Restore snapshot
-  async function handleRestore(snapshot: Snapshot) {
+  async function handleRestore(snapshot: ChapterSnapshot) {
     if (!editor || !activeChapter) return;
     let doc: object;
     try { doc = JSON.parse(snapshot.content); } catch { return; }
@@ -414,21 +414,35 @@ export function ChapterEditor() {
              "已保存"}
           </span>
 
-          {/* Status toggle */}
-          <button
-            onClick={() => {
-              const next = activeChapter.status === "published" ? "draft" : "published";
-              setChapterStatus(activeChapter.id, next);
-            }}
-            className={`flex items-center gap-1 px-2 py-0.5 rounded-full transition-colors ${
-              activeChapter.status === "published"
-                ? "bg-green-100 text-green-600 hover:bg-green-200"
-                : "bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-600"
-            }`}
-          >
-            <span className={`w-1.5 h-1.5 rounded-full ${activeChapter.status === "published" ? "bg-green-400" : "bg-gray-300"}`} />
-            {activeChapter.status === "published" ? "已发布" : "草稿"}
-          </button>
+          {/* Status cycle: draft→writing→review→done→published→draft */}
+          {(() => {
+            const STATUS_CYCLE: import("../../types").Chapter["status"][] = ["draft", "writing", "review", "done", "published"];
+            const STATUS_LABELS: Record<string, string> = { draft: "草稿", writing: "写作中", review: "审阅", done: "完成", published: "已发布" };
+            const STATUS_COLORS: Record<string, string> = {
+              draft: "bg-gray-100 dark:bg-gray-700 text-gray-400",
+              writing: "bg-blue-100 text-blue-600",
+              review: "bg-yellow-100 text-yellow-600",
+              done: "bg-indigo-100 text-indigo-600",
+              published: "bg-green-100 text-green-600",
+            };
+            const STATUS_DOT: Record<string, string> = {
+              draft: "bg-gray-300", writing: "bg-blue-400", review: "bg-yellow-400",
+              done: "bg-indigo-400", published: "bg-green-400",
+            };
+            const cur = activeChapter.status;
+            const nextIdx = (STATUS_CYCLE.indexOf(cur) + 1) % STATUS_CYCLE.length;
+            const next = STATUS_CYCLE[nextIdx];
+            return (
+              <button
+                onClick={() => setChapterStatus(activeChapter.id, next)}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-full transition-colors ${STATUS_COLORS[cur] ?? STATUS_COLORS.draft}`}
+                title={`点击切换到：${STATUS_LABELS[next]}`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${STATUS_DOT[cur] ?? "bg-gray-300"}`} />
+                {STATUS_LABELS[cur] ?? cur}
+              </button>
+            );
+          })()}
 
           <span>{wordCount.toLocaleString()} 字</span>
         </div>

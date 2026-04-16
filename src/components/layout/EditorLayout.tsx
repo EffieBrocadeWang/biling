@@ -14,7 +14,7 @@ import { InspirationCapture } from "../inspiration/InspirationCapture";
 import { InspirationsPanel } from "../inspiration/InspirationsPanel";
 import { DeconstructPanel } from "../deconstruct/DeconstructPanel";
 import { SettingsModal } from "../settings/SettingsModal";
-import type { Project } from "../../types";
+import type { Book } from "../../types";
 
 type MainView = "editor" | "outline" | "codex" | "rules" | "foreshadowing" | "inspirations" | "deconstruct" | "stats" | "io";
 
@@ -31,7 +31,7 @@ const TABS: { id: MainView; label: string }[] = [
 ];
 
 interface Props {
-  project: Project;
+  project: Book;
   onBack: () => void;
 }
 
@@ -78,7 +78,7 @@ export function EditorLayout({ project, onBack }: Props) {
             ← 书架
           </button>
           <span className="text-gray-300 dark:text-gray-600">|</span>
-          <span className="text-sm font-medium text-gray-800 dark:text-gray-100 max-w-32 truncate">{project.name}</span>
+          <span className="text-sm font-medium text-gray-800 dark:text-gray-100 max-w-32 truncate">{project.title}</span>
           <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 dark:text-gray-500 px-2 py-0.5 rounded-full shrink-0">
             {project.genre}
           </span>
@@ -158,7 +158,7 @@ export function EditorLayout({ project, onBack }: Props) {
           <div className="h-full overflow-hidden">
             <OutlinePanel
               projectId={project.id}
-              projectName={project.name}
+              projectName={project.title}
               projectGenre={project.genre}
               projectSynopsis={project.synopsis}
             />

@@ -1,32 +1,34 @@
 import { useEffect, useState } from "react";
 import { useCodexStore } from "../../store/codexStore";
+// CodexEntry is now CodexEntity
 import { useEditorStore } from "../../store/editorStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { aiStream } from "../../lib/ai";
 import {
   CODEX_TYPE_LABELS,
   CODEX_TYPE_ICONS,
-  type CodexEntry,
+  type CodexEntity,
   type CodexType,
 } from "../../types";
 
-const ALL_TYPES: CodexType[] = ["character", "faction", "location", "item", "rule"];
+const ALL_TYPES: CodexType[] = ["character", "faction", "location", "item", "rule", "event", "custom"];
 
 interface Props {
-  projectId: number;
+  projectId: string;
   onOpenSettings: () => void;
 }
 
 // ── AI instruction generator ───────────────────────────────────────────────
 
-function buildAIInstructionPrompt(entry: CodexEntry, chapterExcerpts: string): string {
+function buildAIInstructionPrompt(entry: CodexEntity, chapterExcerpts: string): string {
   const typeLabel = CODEX_TYPE_LABELS[entry.type];
   const parts = [
     `你是一个辅助中文网文写作的助手。请根据以下信息，为"${entry.name}"生成简洁的 AI 指令。`,
     `\n【实体类型】${typeLabel}`,
     `【名称】${entry.name}`,
   ];
-  if (entry.aliases) parts.push(`【别名】${entry.aliases}`);
+  const aliasList: string[] = (() => { try { return JSON.parse(entry.aliases || "[]"); } catch { return []; } })();
+  if (aliasList.length > 0) parts.push(`【别名】${aliasList.join("、")}`);
   if (entry.description) parts.push(`【描述】\n${entry.description}`);
   if (chapterExcerpts) parts.push(`【相关情节摘录】\n${chapterExcerpts}`);
   parts.push(`\n请生成 3-6 条 AI 写作指令，格式为短句要点（以"- "开头），内容包括：
@@ -40,8 +42,10 @@ function buildAIInstructionPrompt(entry: CodexEntry, chapterExcerpts: string): s
 }
 
 // Extract up to ~800 chars of chapter text mentioning the entity name
-function extractChapterExcerpts(chapters: { content: string; title: string }[], name: string, aliases: string): string {
-  const terms = [name, ...aliases.split(/[，,、]/).map((s) => s.trim())].filter(Boolean);
+function extractChapterExcerpts(chapters: { content: string; title: string }[], name: string, aliasesJson: string): string {
+  let aliasList: string[] = [];
+  try { aliasList = JSON.parse(aliasesJson || "[]"); } catch { aliasList = []; }
+  const terms = [name, ...aliasList].filter(Boolean);
   const excerpts: string[] = [];
   let totalChars = 0;
 
@@ -80,7 +84,7 @@ function extractTextFromDoc(doc: { type?: string; text?: string; content?: objec
 // ── Entry detail form ──────────────────────────────────────────────────────
 
 interface DetailProps {
-  entry: CodexEntry;
+  entry: CodexEntity;
   onClose: () => void;
   onOpenSettings: () => void;
 }
@@ -90,9 +94,13 @@ function EntryDetail({ entry, onClose, onOpenSettings }: DetailProps) {
   const { chapters } = useEditorStore();
   const { getActiveModel, getKeyForModel, loaded, load } = useSettingsStore();
 
+  // aliases stored as JSON array; display as comma-separated
+  const aliasDisplay = (() => {
+    try { return (JSON.parse(entry.aliases || "[]") as string[]).join(", "); } catch { return ""; }
+  })();
   const [form, setForm] = useState({
     name: entry.name,
-    aliases: entry.aliases,
+    aliases: aliasDisplay, // display as comma-separated
     description: entry.description,
     ai_instructions: entry.ai_instructions,
     tags: entry.tags,
@@ -108,7 +116,9 @@ function EntryDetail({ entry, onClose, onOpenSettings }: DetailProps) {
 
   async function save() {
     if (!dirty) return;
-    await updateEntry(entry.id, form);
+    // Convert comma-separated aliases back to JSON array
+    const aliasArray = form.aliases.split(/[,，、]/).map((s) => s.trim()).filter(Boolean);
+    await updateEntry(entry.id, { ...form, aliases: JSON.stringify(aliasArray) });
     setDirty(false);
   }
 
@@ -291,7 +301,7 @@ export function CodexPanel({ projectId, onOpenSettings }: Props) {
   const { entries, loading, loadEntries, createEntry } = useCodexStore();
   const [activeType, setActiveType] = useState<CodexType | "all">("all");
   const [search, setSearch] = useState("");
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState<CodexType | null>(null);
   const [newName, setNewName] = useState("");
 
@@ -303,9 +313,11 @@ export function CodexPanel({ projectId, onOpenSettings }: Props) {
     if (activeType !== "all" && e.type !== activeType) return false;
     if (search) {
       const q = search.toLowerCase();
+      let aliasStr = "";
+      try { aliasStr = (JSON.parse(e.aliases || "[]") as string[]).join(" ").toLowerCase(); } catch { aliasStr = ""; }
       return (
         e.name.toLowerCase().includes(q) ||
-        e.aliases.toLowerCase().includes(q) ||
+        aliasStr.includes(q) ||
         e.tags.toLowerCase().includes(q)
       );
     }
@@ -383,8 +395,10 @@ export function CodexPanel({ projectId, onOpenSettings }: Props) {
                 <span className="text-base shrink-0">{CODEX_TYPE_ICONS[e.type]}</span>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">{e.name}</div>
-                  {e.aliases && (
-                    <div className="text-xs text-gray-400 dark:text-gray-500 truncate">{e.aliases}</div>
+                  {e.aliases && e.aliases !== "[]" && (
+                    <div className="text-xs text-gray-400 dark:text-gray-500 truncate">
+                      {(() => { try { return (JSON.parse(e.aliases) as string[]).join(", "); } catch { return ""; } })()}
+                    </div>
                   )}
                 </div>
               </div>

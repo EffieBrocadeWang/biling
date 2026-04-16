@@ -6,26 +6,36 @@ import { aiStream } from "../../lib/ai";
 import type { Foreshadowing } from "../../types";
 
 interface Props {
-  projectId: number;
+  projectId: string;
 }
 
 // ── Single foreshadowing card ──────────────────────────────────────────────
 
 function ForeshadowingCard({
   item,
+  chapters,
   onResolve,
   onReopen,
   onDelete,
 }: {
   item: Foreshadowing;
-  onResolve: (id: number) => void;
-  onReopen: (id: number) => void;
-  onDelete: (id: number) => void;
+  chapters: import("../../types").Chapter[];
+  onResolve: (id: string) => void;
+  onReopen: (id: string) => void;
+  onDelete: (id: string) => void;
 }) {
   const { update } = useForeshadowingStore();
   const [editingNote, setEditingNote] = useState(false);
-  const [noteDraft, setNoteDraft] = useState(item.note);
+  const [noteDraft, setNoteDraft] = useState(item.notes);
   const resolved = item.status === "resolved";
+
+  // Look up chapter title from chapter id
+  const plantedChapterTitle = item.planted_chapter_id
+    ? chapters.find((c) => c.id === item.planted_chapter_id)?.title ?? ""
+    : "";
+  const resolvedChapterTitle = item.resolved_chapter_id
+    ? chapters.find((c) => c.id === item.resolved_chapter_id)?.title ?? ""
+    : "";
 
   return (
     <div className={`rounded-xl border p-4 transition-colors ${resolved ? "border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800" : "border-amber-200 bg-amber-50 dark:bg-amber-900/20"}`}>
@@ -33,15 +43,15 @@ function ForeshadowingCard({
         <span className={`mt-0.5 text-base shrink-0 ${resolved ? "grayscale opacity-40" : ""}`}>🪢</span>
         <div className="flex-1 min-w-0">
           <p className={`text-sm leading-relaxed ${resolved ? "text-gray-400 dark:text-gray-500 line-through" : "text-gray-800 dark:text-gray-100"}`}>
-            {item.content}
+            {item.description}
           </p>
 
           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-            {item.chapter_title && (
-              <span className="text-xs text-gray-400 dark:text-gray-500">埋线：{item.chapter_title}</span>
+            {plantedChapterTitle && (
+              <span className="text-xs text-gray-400 dark:text-gray-500">埋线：{plantedChapterTitle}</span>
             )}
-            {resolved && item.resolved_chapter_title && (
-              <span className="text-xs text-green-600">✓ 回收：{item.resolved_chapter_title}</span>
+            {resolved && resolvedChapterTitle && (
+              <span className="text-xs text-green-600">✓ 回收：{resolvedChapterTitle}</span>
             )}
           </div>
 
@@ -54,27 +64,27 @@ function ForeshadowingCard({
                 onChange={(e) => setNoteDraft(e.target.value)}
                 rows={2}
                 placeholder="添加备注，例如回收的时机或方式…"
-                className="w-full text-xs border border-gray-300 dark:border-gray-600 dark:border-gray-600 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400 resize-none"
+                className="w-full text-xs border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400 resize-none"
               />
               <div className="flex gap-2 mt-1">
                 <button
                   onClick={async () => {
-                    await update(item.id, { note: noteDraft });
+                    await update(item.id, { notes: noteDraft });
                     setEditingNote(false);
                   }}
                   className="text-xs px-2 py-1 bg-amber-500 text-white rounded hover:bg-amber-600"
                 >保存</button>
-                <button onClick={() => { setNoteDraft(item.note); setEditingNote(false); }}
-                  className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300 dark:text-gray-600">取消</button>
+                <button onClick={() => { setNoteDraft(item.notes); setEditingNote(false); }}
+                  className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">取消</button>
               </div>
             </div>
           ) : (
-            item.note && (
+            item.notes && (
               <p
-                className="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 mt-1.5 italic cursor-pointer hover:text-gray-700 dark:text-gray-200"
+                className="text-xs text-gray-500 dark:text-gray-400 mt-1.5 italic cursor-pointer hover:text-gray-700 dark:hover:text-gray-200"
                 onClick={() => setEditingNote(true)}
               >
-                {item.note}
+                {item.notes}
               </p>
             )
           )}
@@ -86,9 +96,9 @@ function ForeshadowingCard({
         {!editingNote && (
           <button
             onClick={() => setEditingNote(true)}
-            className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300 dark:text-gray-600"
+            className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
           >
-            {item.note ? "编辑备注" : "+ 备注"}
+            {item.notes ? "编辑备注" : "+ 备注"}
           </button>
         )}
         <div className="flex-1" />
@@ -116,7 +126,7 @@ function ForeshadowingCard({
 
 export function ForeshadowingPanel({ projectId }: Props) {
   const { items, loading, load, add, resolve, update, remove } = useForeshadowingStore();
-  const { activeChapter } = useEditorStore();
+  const { activeChapter, chapters } = useEditorStore();
   const { getActiveModel, getKeyForModel } = useSettingsStore();
 
   const [newContent, setNewContent] = useState("");
@@ -136,17 +146,16 @@ export function ForeshadowingPanel({ projectId }: Props) {
       projectId,
       newContent.trim(),
       activeChapter?.id ?? null,
-      activeChapter?.title ?? ""
     );
     setNewContent("");
   }
 
-  async function handleResolve(id: number) {
-    await resolve(id, activeChapter?.id ?? null, activeChapter?.title ?? "（当前章节）");
+  async function handleResolve(id: string) {
+    await resolve(id, activeChapter?.id ?? null);
   }
 
-  async function handleReopen(id: number) {
-    await update(id, { status: "planted", resolved_chapter_id: null, resolved_chapter_title: "" });
+  async function handleReopen(id: string) {
+    await update(id, { status: "planted", resolved_chapter_id: null });
   }
 
   // AI scan current chapter for implicit foreshadowing
@@ -160,7 +169,7 @@ export function ForeshadowingPanel({ projectId }: Props) {
     setScanning(true);
     setScanError(null);
 
-    const existingContents = items.map((f) => f.content).join("\n");
+    const existingContents = items.map((f) => f.description).join("\n");
     const prompt = `请分析以下小说章节，找出其中隐含的伏笔、悬念、未解决的线索。
 
 要求：
@@ -191,7 +200,7 @@ ${JSON.parse(activeChapter.content || '{"content":[]}').content?.map((n: { conte
         .filter((l) => l && l !== "无新伏笔" && l.length > 5);
 
       for (const line of lines) {
-        await add(projectId, line, activeChapter.id, activeChapter.title);
+        await add(projectId, line, activeChapter.id);
       }
 
       if (lines.length === 0) setScanError("AI 未在本章发现新伏笔");
@@ -253,7 +262,7 @@ ${JSON.parse(activeChapter.content || '{"content":[]}').content?.map((n: { conte
             key={f}
             onClick={() => setFilter(f)}
             className={`px-3 py-1 text-xs rounded-full transition-colors ${
-              filter === f ? "bg-amber-100 text-amber-700 font-medium" : "text-gray-500 dark:text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
+              filter === f ? "bg-amber-100 text-amber-700 font-medium" : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
             }`}
           >
             {f === "planted" ? `待回收 (${planted.length})` : f === "resolved" ? `已回收 (${resolved.length})` : "全部"}
@@ -278,6 +287,7 @@ ${JSON.parse(activeChapter.content || '{"content":[]}').content?.map((n: { conte
             <ForeshadowingCard
               key={item.id}
               item={item}
+              chapters={chapters}
               onResolve={handleResolve}
               onReopen={handleReopen}
               onDelete={remove}

@@ -8,10 +8,11 @@ import {
   type ParsedChapter,
 } from "../../lib/importExport";
 import { getDb } from "../../lib/db";
-import type { Project } from "../../types";
+import type { Book } from "../../types";
+import { generateId } from "../../lib/db";
 
 interface Props {
-  project: Project;
+  project: Book;
 }
 
 type ExportPlatform = "generic" | "qidian" | "fanqie";
@@ -48,13 +49,13 @@ export function ImportExportPanel({ project }: Props) {
     const db = await getDb();
 
     // Use first volume, or create one if needed
-    let volumeId = volumes[0]?.id;
+    let volumeId: string = volumes[0]?.id ?? "";
     if (!volumeId) {
-      const r = await db.execute(
-        "INSERT INTO volumes (project_id, title, sort_order) VALUES (?, ?, 0)",
-        [project.id, "导入内容"]
+      volumeId = generateId();
+      await db.execute(
+        "INSERT INTO volumes (id, book_id, title, sort_order) VALUES (?, ?, ?, 0)",
+        [volumeId, project.id, "导入内容"]
       );
-      volumeId = r.lastInsertId as number;
     }
 
     // Get current max sort_order for the volume
@@ -64,21 +65,12 @@ export function ImportExportPanel({ project }: Props) {
     for (const ch of importPreview) {
       const content = textToTiptapDoc(ch.content);
       const wc = ch.content.replace(/\s/g, "").length;
+      const chapterId = generateId();
       await db.execute(
-        "INSERT INTO chapters (volume_id, title, content, word_count, sort_order) VALUES (?, ?, ?, ?, ?)",
-        [volumeId, ch.title, content, wc, sortOrder++]
+        "INSERT INTO chapters (id, book_id, volume_id, title, content, word_count, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [chapterId, project.id, volumeId, ch.title, content, wc, sortOrder++]
       );
     }
-
-    // Refresh project word count
-    await db.execute(
-      `UPDATE projects SET word_count = (
-         SELECT COALESCE(SUM(c.word_count), 0)
-         FROM chapters c JOIN volumes v ON c.volume_id = v.id
-         WHERE v.project_id = ?
-       ), updated_at = datetime('now') WHERE id = ?`,
-      [project.id, project.id]
-    );
 
     await loadProjectData(project.id);
     setImporting(false);
@@ -91,7 +83,7 @@ export function ImportExportPanel({ project }: Props) {
     setExporting(true);
     setExportPath(null);
     try {
-      const path = await exportProject(project.name, volumes, chapters, exportPlatform);
+      const path = await exportProject(project.title, volumes, chapters, exportPlatform);
       if (path) setExportPath(path);
     } finally {
       setExporting(false);

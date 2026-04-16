@@ -63,7 +63,7 @@ function MiniBarChart({ days, goal }: { days: DailyStat[]; goal: number }) {
   );
 }
 
-export function StatsPanel({ projectId }: { projectId: number }) {
+export function StatsPanel({ projectId }: { projectId: string }) {
   const { chapters, volumes } = useEditorStore();
   const { dailyGoal, setDailyGoal, loaded, load } = useSettingsStore();
   const [stats, setStats] = useState<StatsData | null>(null);
@@ -88,7 +88,7 @@ export function StatsPanel({ projectId }: { projectId: number }) {
     const thirtyDaysAgo = toDateStr(new Date(Date.now() - 30 * 86400000));
 
     const dailyRows = await db.select<DailyStat[]>(
-      "SELECT date, words_written FROM daily_stats WHERE project_id = ? AND date >= ? ORDER BY date",
+      "SELECT date, words_written FROM writing_stats WHERE book_id = ? AND date >= ? ORDER BY date",
       [projectId, thirtyDaysAgo]
     );
 

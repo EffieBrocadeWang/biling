@@ -17,7 +17,7 @@ interface AnalysisResult {
 }
 
 interface Props {
-  projectId: number;
+  projectId: string;
 }
 
 export function DeconstructPanel({ projectId }: Props) {
@@ -126,9 +126,7 @@ ${inputText.slice(0, 15000)}`;
 
   async function saveToInspiration(result: AnalysisResult) {
     const dim = DIMENSIONS.find((d) => d.id === result.dimensionId);
-    await addInspiration(projectId, `【拆书笔记 · ${dim?.label ?? result.dimensionId}】\n\n${result.content}`, {
-      source: "deconstruct",
-    });
+    await addInspiration(projectId, `【拆书笔记 · ${dim?.label ?? result.dimensionId}】\n\n${result.content}`);
     setSavedIds((prev) => new Set([...prev, result.dimensionId]));
   }
 

@@ -12,7 +12,7 @@ const LEVEL_INDENT = ["", "ml-0", "ml-6", "ml-12"];
 
 interface NodeRowProps {
   node: OutlineNode;
-  projectId: number;
+  projectId: string;
   siblings: OutlineNode[];
   idx: number;
 }
@@ -129,7 +129,7 @@ function NodeRow({ node, projectId, siblings, idx }: NodeRowProps) {
                     <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">关联章节:</span>
                     <select
                       value={node.linked_chapter_id ?? ""}
-                      onChange={(e) => updateNode(node.id, { linked_chapter_id: e.target.value ? Number(e.target.value) : null })}
+                      onChange={(e) => updateNode(node.id, { linked_chapter_id: e.target.value || null })}
                       className="flex-1 text-xs border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5 bg-white dark:bg-gray-900 outline-none"
                     >
                       <option value="">-- 不关联 --</option>
@@ -184,7 +184,7 @@ function NodeRow({ node, projectId, siblings, idx }: NodeRowProps) {
 }
 
 interface Props {
-  projectId: number;
+  projectId: string;
   projectName: string;
   projectGenre: string;
   projectSynopsis: string;
@@ -204,7 +204,7 @@ export function OutlinePanel({ projectId, projectName, projectGenre, projectSyno
   }, [projectId]);
 
   const roots = tree
-    .filter((n) => n.project_id === projectId && n.parent_id == null)
+    .filter((n) => n.book_id === projectId && n.parent_id == null)
     .sort((a, b) => a.sort_order - b.sort_order);
 
   async function handleAddRoot() {
@@ -297,7 +297,7 @@ export function OutlinePanel({ projectId, projectName, projectGenre, projectSyno
       return;
     }
 
-    async function insertNodes(items: RawNode[], parentId: number | null, level: 1 | 2 | 3) {
+    async function insertNodes(items: RawNode[], parentId: string | null, level: 1 | 2 | 3) {
       for (const item of items) {
         const n = await addNode(projectId, parentId, level);
         await useOutlineStore.getState().updateNode(n.id, {
@@ -374,7 +374,7 @@ export function OutlinePanel({ projectId, projectName, projectGenre, projectSyno
 
       {/* Tree */}
       <div className="flex-1 overflow-y-auto p-4">
-        {nodes.filter((n) => n.project_id === projectId).length === 0 ? (
+        {nodes.filter((n) => n.book_id === projectId).length === 0 ? (
           <div className="text-center py-16 text-gray-400 dark:text-gray-500">
             <p className="text-4xl mb-3">📋</p>
             <p className="text-sm">还没有大纲</p>
@@ -396,7 +396,7 @@ export function OutlinePanel({ projectId, projectName, projectGenre, projectSyno
       </div>
 
       {/* Legend */}
-      {nodes.filter((n) => n.project_id === projectId).length > 0 && (
+      {nodes.filter((n) => n.book_id === projectId).length > 0 && (
         <div className="shrink-0 border-t border-gray-200 dark:border-gray-700 px-4 py-2 bg-white dark:bg-gray-900 flex gap-4 text-xs text-gray-400 dark:text-gray-500">
           <span className="text-indigo-600">■ 全书大纲</span>
           <span className="text-blue-500">■ 卷纲</span>

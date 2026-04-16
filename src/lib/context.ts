@@ -1,4 +1,4 @@
-import type { Chapter, CodexEntry } from "../types";
+import type { Chapter, CodexEntity } from "../types";
 import { CODEX_TYPE_LABELS } from "../types";
 
 const RECENT_CHARS = 2000;        // current chapter tail to inject (non-consistency modes)
@@ -29,8 +29,16 @@ function extractText(node: { type?: string; text?: string; content?: object[] })
 
 // ── Codex relevance scoring ────────────────────────────────────────────────
 
-function scoreEntry(entry: CodexEntry, text: string): number {
-  const terms = [entry.name, ...entry.aliases.split(/[，,、\s]/).filter(Boolean)];
+function scoreEntity(entry: CodexEntity, text: string): number {
+  // aliases is a JSON array string: '["alias1","alias2"]'
+  let aliasList: string[] = [];
+  try {
+    aliasList = JSON.parse(entry.aliases || "[]");
+  } catch {
+    // fallback: try comma-split if old format
+    aliasList = entry.aliases ? entry.aliases.split(/[，,、\s]/).filter(Boolean) : [];
+  }
+  const terms = [entry.name, ...aliasList];
   return terms.reduce((score, term) => {
     if (!term) return score;
     let count = 0;
@@ -40,17 +48,25 @@ function scoreEntry(entry: CodexEntry, text: string): number {
   }, 0);
 }
 
-export function selectRelevantEntries(entries: CodexEntry[], chapterText: string): CodexEntry[] {
+export function selectRelevantEntries(entries: CodexEntity[], chapterText: string): CodexEntity[] {
   const scored = entries
-    .map((e) => ({ entry: e, score: scoreEntry(e, chapterText) }))
+    .map((e) => ({ entry: e, score: scoreEntity(e, chapterText) }))
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score);
   return scored.slice(0, MAX_CODEX_ENTRIES).map((s) => s.entry);
 }
 
-function formatEntry(e: CodexEntry): string {
-  const lines = [`【${CODEX_TYPE_LABELS[e.type]}】${e.name}`];
-  if (e.aliases) lines.push(`别名：${e.aliases}`);
+function formatEntry(e: CodexEntity): string {
+  let aliasList: string[] = [];
+  try {
+    aliasList = JSON.parse(e.aliases || "[]");
+  } catch {
+    aliasList = e.aliases ? e.aliases.split(/[，,、\s]/).filter(Boolean) : [];
+  }
+  const aliasStr = aliasList.join("、");
+  const typeLabel = CODEX_TYPE_LABELS[e.type] ?? e.type;
+  const lines = [`【${typeLabel}】${e.name}`];
+  if (aliasStr) lines.push(`别名：${aliasStr}`);
   if (e.description) lines.push(e.description);
   if (e.ai_instructions) lines.push(`注意：${e.ai_instructions}`);
   return lines.join("\n");
@@ -79,7 +95,7 @@ ${text.slice(0, 4000)}`;
 export interface AssembledContext {
   systemPrompt: string;
   recentText: string;
-  injectedEntries: CodexEntry[];
+  injectedEntries: CodexEntity[];
   injectedSummaries: number;
 }
 
@@ -89,7 +105,7 @@ const USER_PROVIDES_TEXT = new Set(["润色", "扩写", "缩写"]);
 export function assembleContext(
   chapter: Chapter | null,
   allChapters: Chapter[],
-  allEntries: CodexEntry[],
+  allEntries: CodexEntity[],
   mode: string,
   writingRules: string
 ): AssembledContext {
@@ -110,7 +126,6 @@ export function assembleContext(
     : [];
 
   // Find preceding chapters: all chapters that come before the current one in sorted order
-  // allChapters is already sorted by (volume sort_order, chapter sort_order) from the store
   const currentIdx = chapter ? allChapters.findIndex((c) => c.id === chapter.id) : -1;
   const prevChapters = currentIdx > 0
     ? allChapters

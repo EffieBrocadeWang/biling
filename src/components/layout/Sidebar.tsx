@@ -74,9 +74,13 @@ function ChapterItem({
       {/* Status dot */}
       <span
         className={`w-1.5 h-1.5 rounded-full mr-1.5 shrink-0 ${
-          chapter.status === "published" ? "bg-green-400" : "bg-gray-300"
+          chapter.status === "published" ? "bg-green-400" :
+          chapter.status === "done" ? "bg-indigo-400" :
+          chapter.status === "review" ? "bg-yellow-400" :
+          chapter.status === "writing" ? "bg-blue-400" :
+          "bg-gray-300"
         }`}
-        title={chapter.status === "published" ? "已发布" : "草稿"}
+        title={chapter.status}
       />
 
       {/* Summary dot */}
@@ -122,12 +126,12 @@ export function Sidebar() {
     reorderChapters, setChapterStatus,
   } = useEditorStore();
 
-  const [renamingChapter, setRenamingChapter] = useState<number | null>(null);
-  const [renamingVolume, setRenamingVolume] = useState<number | null>(null);
+  const [renamingChapter, setRenamingChapter] = useState<string | null>(null);
+  const [renamingVolume, setRenamingVolume] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [contextMenu, setContextMenu] = useState<{
     type: "chapter" | "volume";
-    id: number;
+    id: string;
     x: number;
     y: number;
   } | null>(null);
@@ -136,13 +140,13 @@ export function Sidebar() {
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
 
-  function chaptersForVolume(volumeId: number) {
+  function chaptersForVolume(volumeId: string) {
     return chapters
       .filter((c) => c.volume_id === volumeId)
       .sort((a, b) => a.sort_order - b.sort_order);
   }
 
-  function handleDragEnd(event: DragEndEvent, volumeId: number) {
+  function handleDragEnd(event: DragEndEvent, volumeId: string) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const volChapters = chaptersForVolume(volumeId);
@@ -152,19 +156,19 @@ export function Sidebar() {
     reorderChapters(volumeId, reordered.map((c) => c.id));
   }
 
-  function startRenameChapter(id: number, title: string) {
+  function startRenameChapter(id: string, title: string) {
     setContextMenu(null);
     setRenamingChapter(id);
     setRenameValue(title);
   }
 
-  function startRenameVolume(id: number, title: string) {
+  function startRenameVolume(id: string, title: string) {
     setContextMenu(null);
     setRenamingVolume(id);
     setRenameValue(title);
   }
 
-  function handleContextMenu(e: React.MouseEvent, type: "chapter" | "volume", id: number) {
+  function handleContextMenu(e: React.MouseEvent, type: "chapter" | "volume", id: string) {
     e.preventDefault();
     e.stopPropagation();
     setContextMenu({ type, id, x: e.clientX, y: e.clientY });
@@ -305,13 +309,15 @@ export function Sidebar() {
               </button>
               <button
                 onClick={() => {
-                  const next = contextChapter.status === "published" ? "draft" : "published";
+                  const cycle: import("../../types").Chapter["status"][] = ["draft", "writing", "review", "done", "published"];
+                  const nextIdx = (cycle.indexOf(contextChapter.status) + 1) % cycle.length;
+                  const next = cycle[nextIdx];
                   setChapterStatus(contextChapter.id, next);
                   setContextMenu(null);
                 }}
                 className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
               >
-                {contextChapter.status === "published" ? "改为草稿" : "标记为已发布"}
+                切换状态
               </button>
               <div className="border-t border-gray-100 dark:border-gray-800 my-1" />
               <button

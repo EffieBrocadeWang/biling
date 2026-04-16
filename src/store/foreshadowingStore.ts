@@ -1,40 +1,41 @@
 import { create } from "zustand";
-import { getDb } from "../lib/db";
+import { getDb, generateId } from "../lib/db";
 import type { Foreshadowing } from "../types";
 
 interface ForeshadowingStore {
   items: Foreshadowing[];
   loading: boolean;
-  load: (projectId: number) => Promise<void>;
-  add: (projectId: number, content: string, chapterId: number | null, chapterTitle: string) => Promise<Foreshadowing>;
-  update: (id: number, fields: Partial<Pick<Foreshadowing, "content" | "note" | "status" | "resolved_chapter_id" | "resolved_chapter_title">>) => Promise<void>;
-  resolve: (id: number, chapterId: number | null, chapterTitle: string) => Promise<void>;
-  remove: (id: number) => Promise<void>;
+  load: (bookId: string) => Promise<void>;
+  add: (bookId: string, description: string, plantedChapterId: string | null) => Promise<Foreshadowing>;
+  update: (id: string, fields: Partial<Pick<Foreshadowing, "description" | "notes" | "status" | "resolved_chapter_id">>) => Promise<void>;
+  resolve: (id: string, chapterId: string | null) => Promise<void>;
+  remove: (id: string) => Promise<void>;
 }
 
 export const useForeshadowingStore = create<ForeshadowingStore>((set) => ({
   items: [],
   loading: false,
 
-  load: async (projectId) => {
+  load: async (bookId) => {
     set({ loading: true });
     const db = await getDb();
     const items = await db.select<Foreshadowing[]>(
-      "SELECT * FROM foreshadowing WHERE project_id = ? ORDER BY status ASC, created_at DESC",
-      [projectId]
+      "SELECT * FROM foreshadowing WHERE book_id = ? ORDER BY status ASC, created_at DESC",
+      [bookId]
     );
     set({ items, loading: false });
   },
 
-  add: async (projectId, content, chapterId, chapterTitle) => {
+  add: async (bookId, description, plantedChapterId) => {
     const db = await getDb();
-    const result = await db.execute(
-      "INSERT INTO foreshadowing (project_id, content, chapter_id, chapter_title) VALUES (?, ?, ?, ?)",
-      [projectId, content, chapterId, chapterTitle]
+    const id = generateId();
+    await db.execute(
+      "INSERT INTO foreshadowing (id, book_id, description, planted_chapter_id) VALUES (?, ?, ?, ?)",
+      [id, bookId, description, plantedChapterId]
     );
     const rows = await db.select<Foreshadowing[]>(
       "SELECT * FROM foreshadowing WHERE id = ?",
-      [result.lastInsertId]
+      [id]
     );
     set((state) => ({ items: [rows[0], ...state.items] }));
     return rows[0];
@@ -52,15 +53,15 @@ export const useForeshadowingStore = create<ForeshadowingStore>((set) => ({
     }));
   },
 
-  resolve: async (id, chapterId, chapterTitle) => {
+  resolve: async (id, chapterId) => {
     const db = await getDb();
     await db.execute(
-      "UPDATE foreshadowing SET status = 'resolved', resolved_chapter_id = ?, resolved_chapter_title = ?, updated_at = datetime('now') WHERE id = ?",
-      [chapterId, chapterTitle, id]
+      "UPDATE foreshadowing SET status = 'resolved', resolved_chapter_id = ?, updated_at = datetime('now') WHERE id = ?",
+      [chapterId, id]
     );
     set((state) => ({
       items: state.items.map((f) =>
-        f.id === id ? { ...f, status: "resolved", resolved_chapter_id: chapterId, resolved_chapter_title: chapterTitle } : f
+        f.id === id ? { ...f, status: "resolved", resolved_chapter_id: chapterId } : f
       ),
     }));
   },

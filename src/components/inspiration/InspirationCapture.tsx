@@ -3,7 +3,7 @@ import { useInspirationStore } from "../../store/inspirationStore";
 import { useEditorStore } from "../../store/editorStore";
 
 interface Props {
-  projectId: number;
+  projectId: string;
   onClose: () => void;
 }
 
@@ -33,7 +33,6 @@ export function InspirationCapture({ projectId, onClose }: Props) {
     setSaving(true);
     await add(projectId, content.trim(), {
       linkedChapterId: linkCurrent && activeChapter ? activeChapter.id : null,
-      linkedChapterTitle: linkCurrent && activeChapter ? activeChapter.title : "",
     });
     setSaved(true);
     setTimeout(() => {

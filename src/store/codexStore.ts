@@ -1,39 +1,40 @@
 import { create } from "zustand";
-import { getDb } from "../lib/db";
-import type { CodexEntry, CodexType } from "../types";
+import { getDb, generateId } from "../lib/db";
+import type { CodexEntity, CodexType } from "../types";
 
 interface CodexStore {
-  entries: CodexEntry[];
+  entries: CodexEntity[];
   loading: boolean;
-  loadEntries: (projectId: number) => Promise<void>;
-  createEntry: (projectId: number, type: CodexType, name: string) => Promise<CodexEntry>;
-  updateEntry: (id: number, fields: Partial<Omit<CodexEntry, "id" | "project_id" | "created_at" | "updated_at">>) => Promise<void>;
-  deleteEntry: (id: number) => Promise<void>;
+  loadEntries: (bookId: string) => Promise<void>;
+  createEntry: (bookId: string, type: CodexType, name: string) => Promise<CodexEntity>;
+  updateEntry: (id: string, fields: Partial<Omit<CodexEntity, "id" | "book_id" | "created_at" | "updated_at">>) => Promise<void>;
+  deleteEntry: (id: string) => Promise<void>;
 }
 
 export const useCodexStore = create<CodexStore>((set) => ({
   entries: [],
   loading: false,
 
-  loadEntries: async (projectId) => {
+  loadEntries: async (bookId) => {
     set({ loading: true });
     const db = await getDb();
-    const entries = await db.select<CodexEntry[]>(
-      "SELECT * FROM codex_entries WHERE project_id = ? ORDER BY type, name",
-      [projectId]
+    const entries = await db.select<CodexEntity[]>(
+      "SELECT * FROM codex_entities WHERE book_id = ? ORDER BY type, name",
+      [bookId]
     );
     set({ entries, loading: false });
   },
 
-  createEntry: async (projectId, type, name) => {
+  createEntry: async (bookId, type, name) => {
     const db = await getDb();
-    const result = await db.execute(
-      "INSERT INTO codex_entries (project_id, type, name) VALUES (?, ?, ?)",
-      [projectId, type, name]
+    const id = generateId();
+    await db.execute(
+      "INSERT INTO codex_entities (id, book_id, type, name) VALUES (?, ?, ?, ?)",
+      [id, bookId, type, name]
     );
-    const rows = await db.select<CodexEntry[]>(
-      "SELECT * FROM codex_entries WHERE id = ?",
-      [result.lastInsertId]
+    const rows = await db.select<CodexEntity[]>(
+      "SELECT * FROM codex_entities WHERE id = ?",
+      [id]
     );
     set((state) => ({ entries: [...state.entries, rows[0]] }));
     return rows[0];
@@ -46,7 +47,7 @@ export const useCodexStore = create<CodexStore>((set) => ({
       .join(", ");
     const values = [...Object.values(fields), id];
     await db.execute(
-      `UPDATE codex_entries SET ${sets}, updated_at = datetime('now') WHERE id = ?`,
+      `UPDATE codex_entities SET ${sets}, updated_at = datetime('now') WHERE id = ?`,
       values
     );
     set((state) => ({
@@ -56,7 +57,7 @@ export const useCodexStore = create<CodexStore>((set) => ({
 
   deleteEntry: async (id) => {
     const db = await getDb();
-    await db.execute("DELETE FROM codex_entries WHERE id = ?", [id]);
+    await db.execute("DELETE FROM codex_entities WHERE id = ?", [id]);
     set((state) => ({ entries: state.entries.filter((e) => e.id !== id) }));
   },
 }));

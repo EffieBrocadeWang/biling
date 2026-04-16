@@ -70,7 +70,7 @@ export function WriterBlockPanel() {
 【最近 3000 字内容】
 ${recentText || "（暂无内容）"}
 
-${unresolved.length > 0 ? `【未回收的伏笔】\n${unresolved.map((f) => `- ${f.content}`).join("\n")}` : ""}
+${unresolved.length > 0 ? `【未回收的伏笔】\n${unresolved.map((f) => `- ${f.description}`).join("\n")}` : ""}
 
 ${upcomingOutline.length > 0 ? `【大纲后续规划】\n${upcomingOutline.map((n) => `- ${n.title}${n.content ? "：" + n.content : ""}`).join("\n")}` : ""}
 

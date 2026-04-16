@@ -4,7 +4,7 @@ import { useAiStore } from "../../store/aiStore";
 import type { Inspiration } from "../../types";
 
 interface Props {
-  projectId: number;
+  projectId: string;
   onCaptureOpen: () => void;
   onSwitchToEditor: () => void;
 }
@@ -61,15 +61,13 @@ function InspirationCard({
       <div className="flex items-center justify-between mt-3 pt-2 border-t border-gray-100 dark:border-gray-700">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-gray-400 dark:text-gray-500">{dateStr}</span>
-          {item.linked_chapter_title && (
+          {item.linked_chapter_id && (
             <span className="text-xs bg-indigo-50 dark:bg-indigo-900/30 text-indigo-500 px-2 py-0.5 rounded-full">
-              {item.linked_chapter_title}
+              已关联章节
             </span>
           )}
-          {item.linked_codex_name && (
-            <span className="text-xs bg-purple-50 text-purple-500 px-2 py-0.5 rounded-full">
-              {item.linked_codex_name}
-            </span>
+          {item.is_used === 1 && (
+            <span className="text-xs bg-green-50 text-green-500 px-2 py-0.5 rounded-full">已使用</span>
           )}
         </div>
         <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">

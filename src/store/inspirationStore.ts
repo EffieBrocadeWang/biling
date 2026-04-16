@@ -1,57 +1,52 @@
 import { create } from "zustand";
-import { getDb } from "../lib/db";
+import { getDb, generateId } from "../lib/db";
 import type { Inspiration } from "../types";
 
 interface InspirationStore {
   items: Inspiration[];
-  projectId: number | null;
+  bookId: string | null;
 
-  load: (projectId: number) => Promise<void>;
+  load: (bookId: string) => Promise<void>;
   add: (
-    projectId: number,
+    bookId: string,
     content: string,
     opts?: {
-      linkedChapterId?: number | null;
-      linkedChapterTitle?: string;
-      linkedCodexId?: number | null;
-      linkedCodexName?: string;
-      source?: string;
+      linkedChapterId?: string | null;
+      linkedEntityId?: string | null;
     }
   ) => Promise<Inspiration>;
-  update: (id: number, content: string) => Promise<void>;
-  remove: (id: number) => Promise<void>;
+  update: (id: string, content: string) => Promise<void>;
+  remove: (id: string) => Promise<void>;
 }
 
 export const useInspirationStore = create<InspirationStore>((set) => ({
   items: [],
-  projectId: null,
+  bookId: null,
 
-  load: async (projectId) => {
+  load: async (bookId) => {
     const db = await getDb();
     const items = await db.select<Inspiration[]>(
-      `SELECT * FROM inspirations WHERE project_id = ? ORDER BY created_at DESC`,
-      [projectId]
+      `SELECT * FROM inspirations WHERE book_id = ? ORDER BY created_at DESC`,
+      [bookId]
     );
-    set({ items, projectId });
+    set({ items, bookId });
   },
 
-  add: async (projectId, content, opts = {}) => {
+  add: async (bookId, content, opts = {}) => {
     const db = await getDb();
     const {
       linkedChapterId = null,
-      linkedChapterTitle = "",
-      linkedCodexId = null,
-      linkedCodexName = "",
-      source = "manual",
+      linkedEntityId = null,
     } = opts;
-    const result = await db.execute(
-      `INSERT INTO inspirations (project_id, content, linked_chapter_id, linked_chapter_title, linked_codex_id, linked_codex_name, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [projectId, content, linkedChapterId, linkedChapterTitle, linkedCodexId, linkedCodexName, source]
+    const id = generateId();
+    await db.execute(
+      `INSERT INTO inspirations (id, book_id, content, linked_chapter_id, linked_entity_id)
+       VALUES (?, ?, ?, ?, ?)`,
+      [id, bookId, content, linkedChapterId, linkedEntityId]
     );
     const rows = await db.select<Inspiration[]>(
       `SELECT * FROM inspirations WHERE id = ?`,
-      [result.lastInsertId]
+      [id]
     );
     const newItem = rows[0];
     set((state) => ({ items: [newItem, ...state.items] }));

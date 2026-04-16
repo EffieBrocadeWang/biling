@@ -3,7 +3,7 @@ import { getDb } from "../../lib/db";
 import { useEditorStore } from "../../store/editorStore";
 
 interface SearchResult {
-  chapterId: number;
+  chapterId: string;
   chapterTitle: string;
   volumeTitle: string;
   snippet: string;
@@ -41,7 +41,7 @@ function buildSnippet(text: string, query: string): { snippet: string; matchStar
 }
 
 interface Props {
-  projectId: number;
+  projectId: string;
   onClose: () => void;
   onNavigate: () => void; // switch to editor view
 }
@@ -74,12 +74,12 @@ export function SearchModal({ projectId, onClose, onNavigate }: Props) {
     try {
       const db = await getDb();
       // Fetch all chapters for this project with their content
-      const rows = await db.select<{ id: number; title: string; content: string; volume_title: string }[]>(
+      const rows = await db.select<{ id: string; title: string; content: string; volume_title: string }[]>(
         `SELECT c.id, c.title, c.content,
                 v.title AS volume_title
          FROM chapters c
          JOIN volumes v ON c.volume_id = v.id
-         WHERE v.project_id = ?
+         WHERE v.book_id = ?
          ORDER BY v.sort_order, c.sort_order`,
         [projectId]
       );
@@ -114,7 +114,7 @@ export function SearchModal({ projectId, onClose, onNavigate }: Props) {
     timerRef.current = setTimeout(() => doSearch(val), 300);
   }
 
-  async function handleSelect(chapterId: number) {
+  async function handleSelect(chapterId: string) {
     await setActiveChapter(chapterId);
     onNavigate();
     onClose();

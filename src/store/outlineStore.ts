@@ -1,9 +1,9 @@
 import { create } from "zustand";
-import { getDb } from "../lib/db";
+import { getDb, generateId } from "../lib/db";
 import type { OutlineNode } from "../types";
 
 function buildTree(flat: OutlineNode[]): OutlineNode[] {
-  const map = new Map<number, OutlineNode>();
+  const map = new Map<string, OutlineNode>();
   flat.forEach((n) => map.set(n.id, { ...n, children: [] }));
   const roots: OutlineNode[] = [];
   flat.forEach((n) => {
@@ -20,42 +20,41 @@ function buildTree(flat: OutlineNode[]): OutlineNode[] {
 interface OutlineStore {
   nodes: OutlineNode[];       // flat list
   tree: OutlineNode[];        // nested tree
-  projectId: number | null;
+  bookId: string | null;
 
-  load: (projectId: number) => Promise<void>;
-  addNode: (projectId: number, parentId: number | null, level: 1 | 2 | 3) => Promise<OutlineNode>;
-  updateNode: (id: number, patch: Partial<Pick<OutlineNode, "title" | "content" | "linked_chapter_id">>) => Promise<void>;
-  removeNode: (id: number) => Promise<void>;
-  moveUp: (id: number) => Promise<void>;
-  moveDown: (id: number) => Promise<void>;
+  load: (bookId: string) => Promise<void>;
+  addNode: (bookId: string, parentId: string | null, level: 1 | 2 | 3) => Promise<OutlineNode>;
+  updateNode: (id: string, patch: Partial<Pick<OutlineNode, "title" | "content" | "linked_chapter_id">>) => Promise<void>;
+  removeNode: (id: string) => Promise<void>;
+  moveUp: (id: string) => Promise<void>;
+  moveDown: (id: string) => Promise<void>;
 }
 
 export const useOutlineStore = create<OutlineStore>((set, get) => ({
   nodes: [],
   tree: [],
-  projectId: null,
+  bookId: null,
 
-  load: async (projectId) => {
+  load: async (bookId) => {
     const db = await getDb();
     const rows = await db.select<OutlineNode[]>(
-      `SELECT * FROM outline_nodes WHERE project_id = ? ORDER BY level, sort_order`,
-      [projectId]
+      `SELECT * FROM outline_nodes WHERE book_id = ? ORDER BY level, sort_order`,
+      [bookId]
     );
-    set({ nodes: rows, tree: buildTree(rows), projectId });
+    set({ nodes: rows, tree: buildTree(rows), bookId });
   },
 
-  addNode: async (projectId, parentId, level) => {
+  addNode: async (bookId, parentId, level) => {
     const db = await getDb();
-    // determine sort_order
-    const siblings = get().nodes.filter((n) => n.parent_id === parentId && n.project_id === projectId);
+    const siblings = get().nodes.filter((n) => n.parent_id === parentId && n.book_id === bookId);
     const sortOrder = siblings.length;
-    const result = await db.execute(
-      `INSERT INTO outline_nodes (project_id, parent_id, level, title, content, sort_order) VALUES (?, ?, ?, ?, ?, ?)`,
-      [projectId, parentId, level, "", "", sortOrder]
+    const id = generateId();
+    await db.execute(
+      `INSERT INTO outline_nodes (id, book_id, parent_id, level, title, content, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, bookId, parentId, level, "", "", sortOrder]
     );
-    const newId = result.lastInsertId ?? 0;
     const newNode: OutlineNode = {
-      id: newId, project_id: projectId, parent_id: parentId,
+      id, book_id: bookId, parent_id: parentId,
       title: "", content: "", level, linked_chapter_id: null,
       sort_order: sortOrder, created_at: new Date().toISOString(),
     };
@@ -79,9 +78,8 @@ export const useOutlineStore = create<OutlineStore>((set, get) => ({
 
   removeNode: async (id) => {
     const db = await getDb();
-    // Collect all descendant IDs
     const all = get().nodes;
-    const toDelete: number[] = [];
+    const toDelete: string[] = [];
     const queue = [id];
     while (queue.length) {
       const cur = queue.shift()!;
@@ -101,7 +99,7 @@ export const useOutlineStore = create<OutlineStore>((set, get) => ({
     const node = nodes.find((n) => n.id === id);
     if (!node) return;
     const siblings = nodes
-      .filter((n) => n.parent_id === node.parent_id && n.project_id === node.project_id)
+      .filter((n) => n.parent_id === node.parent_id && n.book_id === node.book_id)
       .sort((a, b) => a.sort_order - b.sort_order);
     const idx = siblings.findIndex((n) => n.id === id);
     if (idx <= 0) return;
@@ -122,7 +120,7 @@ export const useOutlineStore = create<OutlineStore>((set, get) => ({
     const node = nodes.find((n) => n.id === id);
     if (!node) return;
     const siblings = nodes
-      .filter((n) => n.parent_id === node.parent_id && n.project_id === node.project_id)
+      .filter((n) => n.parent_id === node.parent_id && n.book_id === node.book_id)
       .sort((a, b) => a.sort_order - b.sort_order);
     const idx = siblings.findIndex((n) => n.id === id);
     if (idx >= siblings.length - 1) return;

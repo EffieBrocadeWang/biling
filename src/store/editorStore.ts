@@ -1,30 +1,30 @@
 import { create } from "zustand";
-import { getDb } from "../lib/db";
-import type { Volume, Chapter, Snapshot } from "../types";
+import { getDb, generateId } from "../lib/db";
+import type { Volume, Chapter, ChapterSnapshot } from "../types";
 
 interface EditorStore {
-  projectId: number | null;
+  projectId: string | null;
   volumes: Volume[];
   chapters: Chapter[];
-  activeChapterId: number | null;
+  activeChapterId: string | null;
   activeChapter: Chapter | null;
   sidebarOpen: boolean;
   aiPanelOpen: boolean;
 
-  loadProjectData: (projectId: number) => Promise<void>;
-  setActiveChapter: (chapterId: number) => Promise<void>;
-  createChapter: (volumeId: number) => Promise<void>;
-  createVolume: (projectId: number) => Promise<void>;
-  saveChapter: (chapterId: number, content: string, wordCount: number) => Promise<void>;
-  deleteChapter: (chapterId: number) => Promise<void>;
-  renameChapter: (chapterId: number, title: string) => Promise<void>;
-  renameVolume: (volumeId: number, title: string) => Promise<void>;
-  saveSummary: (chapterId: number, summary: string) => Promise<void>;
-  reorderChapters: (volumeId: number, orderedIds: number[]) => Promise<void>;
-  setChapterStatus: (chapterId: number, status: "draft" | "published") => Promise<void>;
-  createSnapshot: (chapterId: number, content: string, wordCount: number) => Promise<void>;
-  loadSnapshots: (chapterId: number) => Promise<Snapshot[]>;
-  restoreSnapshot: (chapterId: number, snapshot: Snapshot) => Promise<void>;
+  loadProjectData: (projectId: string) => Promise<void>;
+  setActiveChapter: (chapterId: string) => Promise<void>;
+  createChapter: (volumeId: string) => Promise<void>;
+  createVolume: (projectId: string) => Promise<void>;
+  saveChapter: (chapterId: string, content: string, wordCount: number) => Promise<void>;
+  deleteChapter: (chapterId: string) => Promise<void>;
+  renameChapter: (chapterId: string, title: string) => Promise<void>;
+  renameVolume: (volumeId: string, title: string) => Promise<void>;
+  saveSummary: (chapterId: string, summary: string) => Promise<void>;
+  reorderChapters: (volumeId: string, orderedIds: string[]) => Promise<void>;
+  setChapterStatus: (chapterId: string, status: Chapter["status"]) => Promise<void>;
+  createSnapshot: (chapterId: string, content: string, wordCount: number) => Promise<void>;
+  loadSnapshots: (chapterId: string) => Promise<ChapterSnapshot[]>;
+  restoreSnapshot: (chapterId: string, snapshot: ChapterSnapshot) => Promise<void>;
   toggleSidebar: () => void;
   toggleAiPanel: () => void;
 }
@@ -41,13 +41,13 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   loadProjectData: async (projectId) => {
     const db = await getDb();
     const volumes = await db.select<Volume[]>(
-      "SELECT * FROM volumes WHERE project_id = ? ORDER BY sort_order",
+      "SELECT * FROM volumes WHERE book_id = ? ORDER BY sort_order",
       [projectId]
     );
     const chapters = await db.select<Chapter[]>(
       `SELECT c.* FROM chapters c
        JOIN volumes v ON c.volume_id = v.id
-       WHERE v.project_id = ?
+       WHERE v.book_id = ?
        ORDER BY v.sort_order, c.sort_order`,
       [projectId]
     );
@@ -67,16 +67,19 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   createChapter: async (volumeId) => {
     const db = await getDb();
-    const existing = get().chapters.filter((c) => c.volume_id === volumeId);
+    const { chapters, projectId } = get();
+    const existing = chapters.filter((c) => c.volume_id === volumeId);
     const sortOrder = existing.length;
-    const title = `第 ${get().chapters.length + 1} 章`;
-    const result = await db.execute(
-      "INSERT INTO chapters (volume_id, title, content, sort_order) VALUES (?, ?, ?, ?)",
-      [volumeId, title, JSON.stringify({ type: "doc", content: [] }), sortOrder]
+    // All loaded chapters belong to current project
+    const title = `第 ${chapters.length + 1} 章`;
+    const id = generateId();
+    await db.execute(
+      "INSERT INTO chapters (id, book_id, volume_id, title, content, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
+      [id, projectId, volumeId, title, JSON.stringify({ type: "doc", content: [] }), sortOrder]
     );
     const rows = await db.select<Chapter[]>(
       "SELECT * FROM chapters WHERE id = ?",
-      [result.lastInsertId]
+      [id]
     );
     if (rows.length > 0) {
       set((state) => ({ chapters: [...state.chapters, rows[0]] }));
@@ -89,13 +92,14 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const existing = get().volumes;
     const sortOrder = existing.length;
     const title = `第 ${sortOrder + 1} 卷`;
-    const result = await db.execute(
-      "INSERT INTO volumes (project_id, title, sort_order) VALUES (?, ?, ?)",
-      [projectId, title, sortOrder]
+    const id = generateId();
+    await db.execute(
+      "INSERT INTO volumes (id, book_id, title, sort_order) VALUES (?, ?, ?, ?)",
+      [id, projectId, title, sortOrder]
     );
     const rows = await db.select<Volume[]>(
       "SELECT * FROM volumes WHERE id = ?",
-      [result.lastInsertId]
+      [id]
     );
     if (rows.length > 0) {
       set((state) => ({ volumes: [...state.volumes, rows[0]] }));
@@ -112,29 +116,21 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       "UPDATE chapters SET content = ?, word_count = ?, updated_at = datetime('now') WHERE id = ?",
       [content, wordCount, chapterId]
     );
-    // Update project word count
+
+    // Track writing stats (only count increases)
     const { projectId } = get();
-    if (projectId) {
+    if (projectId && delta > 0) {
+      const today = new Date().toISOString().slice(0, 10);
+      const statId = generateId();
       await db.execute(
-        `UPDATE projects SET word_count = (
-           SELECT COALESCE(SUM(c.word_count), 0)
-           FROM chapters c JOIN volumes v ON c.volume_id = v.id
-           WHERE v.project_id = ?
-         ), updated_at = datetime('now') WHERE id = ?`,
-        [projectId, projectId]
+        `INSERT INTO writing_stats (id, book_id, date, words_written)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(book_id, date)
+         DO UPDATE SET words_written = words_written + excluded.words_written`,
+        [statId, projectId, today, delta]
       );
-      // Track daily writing progress (only count increases)
-      if (delta > 0) {
-        const today = new Date().toISOString().slice(0, 10);
-        await db.execute(
-          `INSERT INTO daily_stats (project_id, date, words_written)
-           VALUES (?, ?, ?)
-           ON CONFLICT(project_id, date)
-           DO UPDATE SET words_written = words_written + excluded.words_written`,
-          [projectId, today, delta]
-        );
-      }
     }
+
     set((state) => ({
       chapters: state.chapters.map((c) =>
         c.id === chapterId ? { ...c, content, word_count: wordCount } : c
@@ -183,14 +179,15 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   createSnapshot: async (chapterId, content, wordCount) => {
     const db = await getDb();
+    const id = generateId();
     await db.execute(
-      "INSERT INTO snapshots (chapter_id, content, word_count) VALUES (?, ?, ?)",
-      [chapterId, content, wordCount]
+      "INSERT INTO chapter_snapshots (id, chapter_id, content, word_count) VALUES (?, ?, ?, ?)",
+      [id, chapterId, content, wordCount]
     );
     // Keep only the 20 most recent snapshots per chapter
     await db.execute(
-      `DELETE FROM snapshots WHERE chapter_id = ? AND id NOT IN (
-         SELECT id FROM snapshots WHERE chapter_id = ? ORDER BY created_at DESC LIMIT 20
+      `DELETE FROM chapter_snapshots WHERE chapter_id = ? AND id NOT IN (
+         SELECT id FROM chapter_snapshots WHERE chapter_id = ? ORDER BY created_at DESC LIMIT 20
        )`,
       [chapterId, chapterId]
     );
@@ -198,8 +195,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   loadSnapshots: async (chapterId) => {
     const db = await getDb();
-    return db.select<Snapshot[]>(
-      "SELECT * FROM snapshots WHERE chapter_id = ? ORDER BY created_at DESC LIMIT 20",
+    return db.select<ChapterSnapshot[]>(
+      "SELECT * FROM chapter_snapshots WHERE chapter_id = ? ORDER BY created_at DESC LIMIT 20",
       [chapterId]
     );
   },
@@ -236,7 +233,6 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   reorderChapters: async (volumeId, orderedIds) => {
     const db = await getDb();
-    // Update sort_order for each chapter
     await Promise.all(
       orderedIds.map((id, index) =>
         db.execute("UPDATE chapters SET sort_order = ? WHERE id = ?", [index, id])
@@ -248,10 +244,12 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         .map((id) => state.chapters.find((c) => c.id === id)!)
         .filter(Boolean)
         .map((c, i) => ({ ...c, sort_order: i }));
-      return { chapters: [...others, ...reordered].sort((a, b) => {
-        if (a.volume_id !== b.volume_id) return a.volume_id - b.volume_id;
-        return a.sort_order - b.sort_order;
-      })};
+      return {
+        chapters: [...others, ...reordered].sort((a, b) => {
+          if (a.volume_id !== b.volume_id) return a.volume_id < b.volume_id ? -1 : 1;
+          return a.sort_order - b.sort_order;
+        }),
+      };
     });
   },
 

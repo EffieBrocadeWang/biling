@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react";
 import { useProjectStore } from "../../store/projectStore";
 import { NewProjectModal } from "./NewProjectModal";
-import type { Project } from "../../types";
+import type { Book } from "../../types";
 
 interface Props {
-  onOpenProject: (project: Project) => void;
+  onOpenProject: (project: Book) => void;
 }
 
 export function ProjectList({ onOpenProject }: Props) {
   const { projects, loading, loadProjects, deleteProject } = useProjectStore();
   const [showModal, setShowModal] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   useEffect(() => {
     loadProjects();
@@ -85,7 +85,7 @@ export function ProjectList({ onOpenProject }: Props) {
               >
                 <div className="flex items-start justify-between mb-2">
                   <h3 className="font-semibold text-gray-900 dark:text-gray-100 group-hover:text-indigo-600 transition-colors line-clamp-1">
-                    {project.name}
+                    {project.title}
                   </h3>
                   <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 dark:text-gray-500 px-2 py-0.5 rounded-full ml-2 shrink-0">
                     {project.genre}
@@ -100,14 +100,9 @@ export function ProjectList({ onOpenProject }: Props) {
 
                 <div className="flex items-center justify-between mt-auto pt-2 border-t border-gray-100 dark:border-gray-800">
                   <span className="text-xs text-gray-400 dark:text-gray-500">
-                    {project.word_count > 0
-                      ? `${project.word_count.toLocaleString()} 字`
-                      : "尚未开始"}
+                    {formatDate(project.updated_at)}
                   </span>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-400 dark:text-gray-500">
-                      {formatDate(project.updated_at)}
-                    </span>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
