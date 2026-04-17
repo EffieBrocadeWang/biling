@@ -6,9 +6,11 @@ import CharacterCount from "@tiptap/extension-character-count";
 import { useEditorStore } from "../../store/editorStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useOutlineStore } from "../../store/outlineStore";
+import { useAiStore } from "../../store/aiStore";
 import { aiStream } from "../../lib/ai";
 import { buildSummaryPrompt } from "../../lib/context";
 import type { ChapterSnapshot } from "../../types";
+import type { ChatMode } from "../../store/aiStore";
 
 const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000;
 const AUTOSAVE_DEBOUNCE_MS = 2000;
@@ -63,7 +65,7 @@ function SnapshotPanel({ chapterId, onRestore, onClose }: SnapshotPanelProps) {
     <div className="absolute top-10 right-4 z-40 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-72">
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800">
         <span className="text-sm font-medium text-gray-700 dark:text-gray-200">历史版本</span>
-        <button onClick={onClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300 dark:text-gray-600 text-lg leading-none">×</button>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 text-lg leading-none">×</button>
       </div>
       <div className="max-h-80 overflow-y-auto">
         {loading ? (
@@ -72,9 +74,9 @@ function SnapshotPanel({ chapterId, onRestore, onClose }: SnapshotPanelProps) {
           <div className="text-center text-gray-400 dark:text-gray-500 text-xs py-6">暂无历史版本</div>
         ) : (
           snapshots.map((s) => (
-            <div key={s.id} className="px-4 py-3 border-b border-gray-50 hover:bg-gray-50 dark:bg-gray-800">
+            <div key={s.id} className="px-4 py-3 border-b border-gray-50 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500">{formatTime(s.created_at)}</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">{formatTime(s.created_at)}</span>
                 <span className="text-xs text-gray-400 dark:text-gray-500">{s.word_count} 字</span>
               </div>
               {confirming === s.id ? (
@@ -82,23 +84,17 @@ function SnapshotPanel({ chapterId, onRestore, onClose }: SnapshotPanelProps) {
                   <button
                     onClick={() => { onRestore(s); onClose(); }}
                     className="flex-1 text-xs bg-indigo-600 text-white rounded px-2 py-1 hover:bg-indigo-700"
-                  >
-                    确认恢复
-                  </button>
+                  >确认恢复</button>
                   <button
                     onClick={() => setConfirming(null)}
-                    className="flex-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 dark:text-gray-600 rounded px-2 py-1 hover:bg-gray-200 dark:hover:bg-gray-600"
-                  >
-                    取消
-                  </button>
+                    className="flex-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded px-2 py-1 hover:bg-gray-200 dark:hover:bg-gray-600"
+                  >取消</button>
                 </div>
               ) : (
                 <button
                   onClick={() => setConfirming(s.id)}
                   className="mt-1 text-xs text-indigo-500 hover:text-indigo-700"
-                >
-                  恢复此版本
-                </button>
+                >恢复此版本</button>
               )}
             </div>
           ))
@@ -111,13 +107,63 @@ function SnapshotPanel({ chapterId, onRestore, onClose }: SnapshotPanelProps) {
   );
 }
 
+// ── Selection → AI toolbar ─────────────────────────────────────────────────
+
+interface SelectionToolbarProps {
+  text: string;
+  rect: DOMRect;
+  onAction: (mode: ChatMode, autoSend: boolean) => void;
+}
+
+function SelectionToolbar({ text: _text, rect, onAction }: SelectionToolbarProps) {
+  const top = Math.max(8, rect.top - 46);
+  const left = rect.left + rect.width / 2;
+
+  return (
+    <div
+      className="fixed z-50 flex items-center gap-px bg-gray-800 text-white rounded-lg shadow-xl overflow-hidden text-xs"
+      style={{ top, left, transform: "translateX(-50%)" }}
+      onMouseDown={(e) => e.preventDefault()}
+    >
+      {(
+        [
+          { mode: "润色" as ChatMode, label: "润色" },
+          { mode: "扩写" as ChatMode, label: "扩写" },
+          { mode: "缩写" as ChatMode, label: "缩写" },
+        ] as const
+      ).map(({ mode, label }) => (
+        <button
+          key={mode}
+          onClick={() => onAction(mode, true)}
+          className="px-2.5 py-1.5 hover:bg-gray-700 transition-colors"
+        >{label}</button>
+      ))}
+      <div className="w-px h-4 bg-gray-600 mx-0.5" />
+      <button
+        onClick={() => onAction("自由", false)}
+        className="px-2.5 py-1.5 hover:bg-indigo-600 transition-colors flex items-center gap-1"
+      >
+        发送到AI <span className="opacity-60">→</span>
+      </button>
+    </div>
+  );
+}
+
 // ── Main editor ────────────────────────────────────────────────────────────
 
-export function ChapterEditor() {
-  const { activeChapter, saveChapter, setChapterStatus, createSnapshot, restoreSnapshot, saveSummary } =
+interface Props {
+  chapterId?: string;
+}
+
+export function ChapterEditor({ chapterId }: Props) {
+  const { chapters, saveChapter, setChapterStatus, createSnapshot, restoreSnapshot, saveSummary } =
     useEditorStore();
   const { getActiveModel, getKeyForModel, appearance } = useSettingsStore();
   const { nodes: outlineNodes } = useOutlineStore();
+  const { setPendingQuote } = useAiStore();
+
+  // Derive chapter from store reactively
+  const chapter = chapters.find(c => c.id === chapterId) ?? null;
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const snapshotTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -131,6 +177,7 @@ export function ChapterEditor() {
   const [generatingSummary, setGeneratingSummary] = useState(false);
   const [summaryDraft, setSummaryDraft] = useState("");
   const [toast, setToast] = useState<string | null>(null);
+  const [selectionPopup, setSelectionPopup] = useState<{ text: string; rect: DOMRect } | null>(null);
 
   const editor = useEditor({
     extensions: [
@@ -144,6 +191,17 @@ export function ChapterEditor() {
         style: "font-size: inherit; line-height: inherit; font-family: inherit;",
       },
     },
+    onSelectionUpdate: ({ editor }) => {
+      const { from, to } = editor.state.selection;
+      if (from === to) { setSelectionPopup(null); return; }
+      const text = editor.state.doc.textBetween(from, to, "\n").trim();
+      if (text.length < 2) { setSelectionPopup(null); return; }
+      const domSel = window.getSelection();
+      if (!domSel || domSel.rangeCount === 0) { setSelectionPopup(null); return; }
+      const rect = domSel.getRangeAt(0).getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) { setSelectionPopup(null); return; }
+      setSelectionPopup({ text, rect });
+    },
     onUpdate: ({ editor }) => {
       isDirty.current = true;
       setSaveStatus("unsaved");
@@ -152,23 +210,25 @@ export function ChapterEditor() {
       // Layer 2: debounced auto-save
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(async () => {
-        if (json !== lastSavedContent.current && activeChapter) {
+        // Read fresh chapter id from store to avoid stale closure
+        const currentChapterId = chapterId;
+        if (json !== lastSavedContent.current && currentChapterId) {
           setSaveStatus("saving");
           lastSavedContent.current = json;
           const wc = countWords(editor.getText());
-          await saveChapter(activeChapter.id, json, wc);
+          await saveChapter(currentChapterId, json, wc);
           setSaveStatus("saved");
         }
       }, AUTOSAVE_DEBOUNCE_MS);
     },
   });
 
-  // Layer 1: load chapter into editor
+  // Layer 1: load chapter content into editor when chapter changes
   useEffect(() => {
-    if (!editor || !activeChapter) return;
+    if (!editor || !chapter) return;
     let doc: object;
     try {
-      doc = JSON.parse(activeChapter.content || "{}");
+      doc = JSON.parse(chapter.content || "{}");
     } catch {
       doc = { type: "doc", content: [] };
     }
@@ -180,35 +240,35 @@ export function ChapterEditor() {
     }
     setSaveStatus("saved");
     isDirty.current = false;
-    setSummaryDraft(activeChapter?.summary ?? "");
-  }, [activeChapter?.id]);
+    setSummaryDraft(chapter.summary ?? "");
+  }, [chapter?.id]);
 
   // Layer 3: periodic snapshot every 5 min if content changed
   useEffect(() => {
     if (snapshotTimer.current) clearInterval(snapshotTimer.current);
     snapshotTimer.current = setInterval(async () => {
-      if (!editor || !activeChapter || !isDirty.current) return;
+      if (!editor || !chapterId || !isDirty.current) return;
       const json = JSON.stringify(editor.getJSON());
       if (json === lastSnapshotContent.current) return;
       lastSnapshotContent.current = json;
       isDirty.current = false;
       const wc = countWords(editor.getText());
-      await createSnapshot(activeChapter.id, json, wc);
+      await createSnapshot(chapterId, json, wc);
     }, SNAPSHOT_INTERVAL_MS);
     return () => {
       if (snapshotTimer.current) clearInterval(snapshotTimer.current);
     };
-  }, [activeChapter?.id, editor]);
+  }, [chapterId, editor]);
 
   // Layer 4: save on window close / visibility change
   useEffect(() => {
     async function flushSave() {
-      if (!editor || !activeChapter) return;
+      if (!editor || !chapterId) return;
       const json = JSON.stringify(editor.getJSON());
       if (json === lastSavedContent.current) return;
       lastSavedContent.current = json;
       const wc = countWords(editor.getText());
-      await saveChapter(activeChapter.id, json, wc);
+      await saveChapter(chapterId, json, wc);
     }
     function handleVisibilityChange() {
       if (document.visibilityState === "hidden") flushSave();
@@ -219,12 +279,22 @@ export function ChapterEditor() {
       window.removeEventListener("beforeunload", flushSave);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [editor, activeChapter, saveChapter]);
+  }, [editor, chapterId, saveChapter]);
 
   // Toast helper
   function showToast(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(null), 2000);
+  }
+
+  // Send selected text to AI panel
+  function handleSendToAi(mode: ChatMode, autoSend: boolean) {
+    if (!selectionPopup) return;
+    const { aiPanelOpen, toggleAiPanel } = useEditorStore.getState();
+    if (!aiPanelOpen) toggleAiPanel();
+    setPendingQuote({ text: selectionPopup.text, mode, autoSend });
+    setSelectionPopup(null);
+    editor?.commands.setTextSelection(editor.state.selection.to);
   }
 
   // Insert text from AI panel
@@ -246,17 +316,17 @@ export function ChapterEditor() {
     async (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault();
-        if (!editor || !activeChapter) return;
+        if (!editor || !chapterId) return;
         if (saveTimer.current) clearTimeout(saveTimer.current);
         setSaveStatus("saving");
         const json = JSON.stringify(editor.getJSON());
         const wc = countWords(editor.getText());
         lastSavedContent.current = json;
-        await saveChapter(activeChapter.id, json, wc);
+        await saveChapter(chapterId, json, wc);
         setSaveStatus("saved");
       }
     },
-    [editor, activeChapter, saveChapter]
+    [editor, chapterId, saveChapter]
   );
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -265,16 +335,17 @@ export function ChapterEditor() {
 
   // Restore snapshot
   async function handleRestore(snapshot: ChapterSnapshot) {
-    if (!editor || !activeChapter) return;
+    if (!editor || !chapter) return;
     let doc: object;
     try { doc = JSON.parse(snapshot.content); } catch { return; }
     editor.commands.setContent(doc);
     lastSavedContent.current = snapshot.content;
-    await restoreSnapshot(activeChapter.id, snapshot);
+    await restoreSnapshot(chapter.id, snapshot);
     setSaveStatus("saved");
   }
 
-  if (!activeChapter) {
+  // Empty state: no chapter selected or chapterId not found
+  if (!chapter) {
     return (
       <div className="flex-1 flex items-center justify-center text-gray-300 dark:text-gray-600">
         <div className="text-center">
@@ -290,7 +361,7 @@ export function ChapterEditor() {
     );
   }
 
-  const wordCount = editor ? countWords(editor.getText()) : activeChapter.word_count;
+  const wordCount = editor ? countWords(editor.getText()) : chapter.word_count;
 
   return (
     <div className="flex flex-col h-full relative">
@@ -328,18 +399,16 @@ export function ChapterEditor() {
         {/* Manual snapshot */}
         <button
           onClick={async () => {
-            if (!editor || !activeChapter) return;
+            if (!editor || !chapter) return;
             const json = JSON.stringify(editor.getJSON());
             const wc = countWords(editor.getText());
             lastSnapshotContent.current = json;
-            await createSnapshot(activeChapter.id, json, wc);
+            await createSnapshot(chapter.id, json, wc);
             showToast("已存档 ✓");
           }}
           className="px-2 py-1 text-xs rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 hover:text-indigo-600 transition-colors"
           title="手动保存版本"
-        >
-          存档
-        </button>
+        >存档</button>
 
         {/* Chapter summary */}
         <button
@@ -348,7 +417,7 @@ export function ChapterEditor() {
           title="章节摘要"
         >
           摘要
-          {activeChapter.summary && (
+          {chapter.summary && (
             <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
           )}
         </button>
@@ -358,22 +427,20 @@ export function ChapterEditor() {
           onClick={() => setShowSnapshots((v) => !v)}
           className={`px-2 py-1 text-xs rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${showSnapshots ? "text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30" : "text-gray-400 dark:text-gray-500"}`}
           title="历史版本"
-        >
-          历史
-        </button>
+        >历史</button>
       </div>
 
       {/* Outline hint */}
       {(() => {
         const linked = outlineNodes.find(
-          (n) => n.level === 3 && n.linked_chapter_id === activeChapter.id
+          (n) => n.level === 3 && n.linked_chapter_id === chapter.id
         );
         if (!linked) return null;
         return (
-          <div className="shrink-0 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/30 border-b border-indigo-100 flex items-start gap-2">
+          <div className="shrink-0 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/30 border-b border-indigo-100 dark:border-indigo-800 flex items-start gap-2">
             <span className="text-indigo-400 text-xs shrink-0 mt-0.5">📋 章纲</span>
             <div className="flex-1 min-w-0">
-              <span className="text-xs font-medium text-indigo-700">{linked.title}</span>
+              <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300">{linked.title}</span>
               {linked.content && (
                 <span className="text-xs text-indigo-500 ml-2">{linked.content}</span>
               )}
@@ -401,9 +468,8 @@ export function ChapterEditor() {
 
       {/* Status bar */}
       <div className="border-t border-gray-200 dark:border-gray-700 px-4 py-1.5 flex items-center justify-between text-xs text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-900 shrink-0">
-        <span>{activeChapter.title}</span>
+        <span>{chapter.title}</span>
         <div className="flex items-center gap-3">
-          {/* Save indicator */}
           <span className={
             saveStatus === "saving" ? "text-amber-400" :
             saveStatus === "unsaved" ? "text-gray-300 dark:text-gray-600" :
@@ -414,7 +480,7 @@ export function ChapterEditor() {
              "已保存"}
           </span>
 
-          {/* Status cycle: draft→writing→review→done→published→draft */}
+          {/* Status cycle */}
           {(() => {
             const STATUS_CYCLE: import("../../types").Chapter["status"][] = ["draft", "writing", "review", "done", "published"];
             const STATUS_LABELS: Record<string, string> = { draft: "草稿", writing: "写作中", review: "审阅", done: "完成", published: "已发布" };
@@ -429,12 +495,12 @@ export function ChapterEditor() {
               draft: "bg-gray-300", writing: "bg-blue-400", review: "bg-yellow-400",
               done: "bg-indigo-400", published: "bg-green-400",
             };
-            const cur = activeChapter.status;
+            const cur = chapter.status;
             const nextIdx = (STATUS_CYCLE.indexOf(cur) + 1) % STATUS_CYCLE.length;
             const next = STATUS_CYCLE[nextIdx];
             return (
               <button
-                onClick={() => setChapterStatus(activeChapter.id, next)}
+                onClick={() => setChapterStatus(chapter.id, next)}
                 className={`flex items-center gap-1 px-2 py-0.5 rounded-full transition-colors ${STATUS_COLORS[cur] ?? STATUS_COLORS.draft}`}
                 title={`点击切换到：${STATUS_LABELS[next]}`}
               >
@@ -450,7 +516,7 @@ export function ChapterEditor() {
 
       {/* Toast */}
       {toast && (
-        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-50 bg-gray-800 text-white text-xs px-4 py-2 rounded-full shadow-lg pointer-events-none animate-fade-in">
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-50 bg-gray-800 text-white text-xs px-4 py-2 rounded-full shadow-lg pointer-events-none">
           {toast}
         </div>
       )}
@@ -462,7 +528,6 @@ export function ChapterEditor() {
             <span className="text-sm font-medium text-gray-700 dark:text-gray-200">章节摘要</span>
             <button
               onClick={async () => {
-                if (!activeChapter) return;
                 const model = getActiveModel();
                 if (!model) { showToast("请先配置 AI 模型"); return; }
                 const apiKey = model.provider === "ollama" ? "ollama" : getKeyForModel(model);
@@ -470,7 +535,7 @@ export function ChapterEditor() {
                 setGeneratingSummary(true);
                 setSummaryDraft("");
                 try {
-                  const prompt = buildSummaryPrompt(activeChapter);
+                  const prompt = buildSummaryPrompt(chapter);
                   const result = await aiStream({
                     model, apiKey,
                     messages: [{ role: "user", content: prompt }],
@@ -478,7 +543,7 @@ export function ChapterEditor() {
                     temperature: 0.5,
                     onChunk: (d) => setSummaryDraft((s) => s + d),
                   });
-                  await saveSummary(activeChapter.id, result);
+                  await saveSummary(chapter.id, result);
                   showToast("摘要已保存 ✓");
                 } catch (e) {
                   showToast(`生成失败: ${String(e)}`);
@@ -498,20 +563,16 @@ export function ChapterEditor() {
               onChange={(e) => setSummaryDraft(e.target.value)}
               placeholder="在此手动输入本章摘要，或点击「AI 生成」…&#10;&#10;摘要会被注入后续章节的 AI 上下文（前情提要）。"
               rows={5}
-              className="w-full text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-none"
+              className="w-full text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-none bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200"
             />
             <div className="flex justify-end mt-2">
               <button
                 onClick={async () => {
-                  if (activeChapter) {
-                    await saveSummary(activeChapter.id, summaryDraft);
-                    showToast("摘要已保存 ✓");
-                  }
+                  await saveSummary(chapter.id, summaryDraft);
+                  showToast("摘要已保存 ✓");
                 }}
                 className="px-3 py-1 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-              >
-                保存
-              </button>
+              >保存</button>
             </div>
           </div>
           <div className="px-4 pb-3 text-xs text-gray-400 dark:text-gray-500">
@@ -523,9 +584,18 @@ export function ChapterEditor() {
       {/* Snapshot panel */}
       {showSnapshots && (
         <SnapshotPanel
-          chapterId={activeChapter.id}
+          chapterId={chapter.id}
           onRestore={handleRestore}
           onClose={() => setShowSnapshots(false)}
+        />
+      )}
+
+      {/* Selection → AI toolbar */}
+      {selectionPopup && (
+        <SelectionToolbar
+          text={selectionPopup.text}
+          rect={selectionPopup.rect}
+          onAction={handleSendToAi}
         />
       )}
     </div>

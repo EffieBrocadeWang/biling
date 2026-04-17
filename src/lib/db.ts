@@ -13,10 +13,7 @@ export async function getDb(): Promise<Database> {
   return _db;
 }
 
-async function initSchema(db: Database) {
-  await db.execute("PRAGMA journal_mode = WAL");
-  await db.execute("PRAGMA foreign_keys = ON");
-
+async function createTables(db: Database) {
   // ── Schema version tracking ──────────────────────────────────────────────
   await db.execute(`
     CREATE TABLE IF NOT EXISTS schema_version (
@@ -275,6 +272,37 @@ async function initSchema(db: Database) {
     )
   `);
 
+  // ── Writing packs ────────────────────────────────────────────────────────
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS writing_packs (
+      id           TEXT PRIMARY KEY,
+      name         TEXT NOT NULL,
+      version      TEXT NOT NULL,
+      author       TEXT,
+      description  TEXT,
+      genre        TEXT,
+      icon         TEXT,
+      manifest     TEXT NOT NULL,
+      installed_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS writing_pack_items (
+      id         TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+      pack_id    TEXT NOT NULL REFERENCES writing_packs(id) ON DELETE CASCADE,
+      category   TEXT NOT NULL CHECK (category IN ('template','material','inspiration','writing_rule','reference')),
+      title      TEXT NOT NULL,
+      content    TEXT NOT NULL,
+      metadata   TEXT DEFAULT '{}',
+      sort_order INTEGER DEFAULT 0
+    )
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_pack_items ON writing_pack_items(pack_id, category, sort_order)
+  `);
+
   await db.execute(`
     CREATE TABLE IF NOT EXISTS ai_providers (
       id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
@@ -295,6 +323,12 @@ async function initSchema(db: Database) {
   await migrateOldTables(db);
 }
 
+async function initSchema(db: Database) {
+  await db.execute("PRAGMA journal_mode = WAL");
+  await db.execute("PRAGMA foreign_keys = ON");
+  await createTables(db);
+}
+
 async function tableExists(db: Database, name: string): Promise<boolean> {
   const rows = await db.select<{ cnt: number }[]>(
     "SELECT COUNT(*) as cnt FROM sqlite_master WHERE type='table' AND name=?",
@@ -303,15 +337,54 @@ async function tableExists(db: Database, name: string): Promise<boolean> {
   return (rows[0]?.cnt ?? 0) > 0;
 }
 
+async function columnExists(db: Database, table: string, column: string): Promise<boolean> {
+  const cols = await db.select<{ name: string }[]>(`PRAGMA table_info(${table})`);
+  return cols.some((c) => c.name === column);
+}
+
 async function migrateOldTables(db: Database) {
-  // projects → books
+  // Use ALTER TABLE RENAME COLUMN to fix old project_id → book_id columns in-place.
+  // This works without disabling FK constraints and is safe on SQLite 3.25+.
+
+  // volumes: project_id → book_id
+  if (await tableExists(db, "volumes") && await columnExists(db, "volumes", "project_id")) {
+    await db.execute(`ALTER TABLE volumes RENAME COLUMN project_id TO book_id`);
+  }
+
+  // chapters: project_id → book_id
+  if (await tableExists(db, "chapters") && await columnExists(db, "chapters", "project_id")) {
+    await db.execute(`ALTER TABLE chapters RENAME COLUMN project_id TO book_id`);
+  }
+
+  // foreshadowing: project_id → book_id, content → description, note → notes
+  if (await tableExists(db, "foreshadowing")) {
+    if (await columnExists(db, "foreshadowing", "project_id"))
+      await db.execute(`ALTER TABLE foreshadowing RENAME COLUMN project_id TO book_id`);
+    if (await columnExists(db, "foreshadowing", "content"))
+      await db.execute(`ALTER TABLE foreshadowing RENAME COLUMN content TO description`);
+    if (await columnExists(db, "foreshadowing", "note"))
+      await db.execute(`ALTER TABLE foreshadowing RENAME COLUMN note TO notes`);
+  }
+
+  // inspirations: project_id → book_id
+  if (await tableExists(db, "inspirations") && await columnExists(db, "inspirations", "project_id")) {
+    await db.execute(`ALTER TABLE inspirations RENAME COLUMN project_id TO book_id`);
+  }
+
+  // outline_nodes: project_id → book_id
+  if (await tableExists(db, "outline_nodes") && await columnExists(db, "outline_nodes", "project_id")) {
+    await db.execute(`ALTER TABLE outline_nodes RENAME COLUMN project_id TO book_id`);
+  }
+
+  // projects → books: copy data if projects table still exists
   if (await tableExists(db, "projects") && !(await tableExists(db, "_migrated_projects"))) {
     try {
       await db.execute(`
         INSERT OR IGNORE INTO books (id, title, genre, synopsis, created_at, updated_at)
-        SELECT CAST(id AS TEXT), name, genre, synopsis, created_at, updated_at FROM projects
+        SELECT CAST(id AS TEXT), COALESCE(name, title, ''), COALESCE(genre, ''),
+               COALESCE(synopsis, ''), created_at, updated_at FROM projects
       `);
-      await db.execute("ALTER TABLE projects RENAME TO _migrated_projects");
+      await db.execute(`ALTER TABLE projects RENAME TO _migrated_projects`);
     } catch { /* ignore */ }
   }
 
@@ -322,7 +395,7 @@ async function migrateOldTables(db: Database) {
         INSERT OR IGNORE INTO chapter_snapshots (id, chapter_id, content, word_count, created_at)
         SELECT CAST(id AS TEXT), CAST(chapter_id AS TEXT), content, word_count, created_at FROM snapshots
       `);
-      await db.execute("ALTER TABLE snapshots RENAME TO _migrated_snapshots");
+      await db.execute(`ALTER TABLE snapshots RENAME TO _migrated_snapshots`);
     } catch { /* ignore */ }
   }
 
@@ -331,11 +404,11 @@ async function migrateOldTables(db: Database) {
     try {
       await db.execute(`
         INSERT OR IGNORE INTO codex_entities (id, book_id, type, name, aliases, description, ai_instructions, tags, created_at, updated_at)
-        SELECT CAST(id AS TEXT), CAST(project_id AS TEXT), type, name,
-               '[]', description, ai_instructions, tags, created_at, updated_at
-        FROM codex_entries
+        SELECT CAST(id AS TEXT), CAST(project_id AS TEXT), type, name, '[]',
+               COALESCE(description, ''), COALESCE(ai_instructions, ''), COALESCE(tags, ''),
+               created_at, updated_at FROM codex_entries
       `);
-      await db.execute("ALTER TABLE codex_entries RENAME TO _migrated_codex_entries");
+      await db.execute(`ALTER TABLE codex_entries RENAME TO _migrated_codex_entries`);
     } catch { /* ignore */ }
   }
 
@@ -346,7 +419,7 @@ async function migrateOldTables(db: Database) {
         INSERT OR IGNORE INTO writing_stats (book_id, date, words_written)
         SELECT CAST(project_id AS TEXT), date, words_written FROM daily_stats
       `);
-      await db.execute("ALTER TABLE daily_stats RENAME TO _migrated_daily_stats");
+      await db.execute(`ALTER TABLE daily_stats RENAME TO _migrated_daily_stats`);
     } catch { /* ignore */ }
   }
 }

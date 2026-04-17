@@ -16,11 +16,16 @@ export const useProjectStore = create<ProjectStore>((set) => ({
 
   loadProjects: async () => {
     set({ loading: true });
-    const db = await getDb();
-    const projects = await db.select<Book[]>(
-      "SELECT id, title, author, genre, synopsis, arc_summary, writing_rules, word_count_goal, daily_word_goal, created_at, updated_at FROM books ORDER BY updated_at DESC"
-    );
-    set({ projects, loading: false });
+    try {
+      const db = await getDb();
+      const projects = await db.select<Book[]>(
+        "SELECT id, title, author, genre, synopsis, arc_summary, writing_rules, word_count_goal, daily_word_goal, created_at, updated_at FROM books ORDER BY updated_at DESC"
+      );
+      set({ projects, loading: false });
+    } catch (e) {
+      console.error("loadProjects failed:", e);
+      set({ loading: false });
+    }
   },
 
   createProject: async (title, genre, synopsis) => {

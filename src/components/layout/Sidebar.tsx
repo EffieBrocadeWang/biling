@@ -15,12 +15,15 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useEditorStore } from "../../store/editorStore";
-import type { Chapter } from "../../types";
+import { useOutlineStore } from "../../store/outlineStore";
+import { useTabStore } from "../../store/tabStore";
+import type { Chapter, OutlineNode } from "../../types";
 
 // ── Sortable chapter item ──────────────────────────────────────────────────
 
 interface ChapterItemProps {
   chapter: Chapter;
+  globalIndex: number;
   isActive: boolean;
   isRenaming: boolean;
   renameValue: string;
@@ -33,6 +36,7 @@ interface ChapterItemProps {
 
 function ChapterItem({
   chapter,
+  globalIndex,
   isActive,
   isRenaming,
   renameValue,
@@ -104,7 +108,16 @@ function ChapterItem({
         />
       ) : (
         <>
-          <span className="text-sm truncate flex-1">{chapter.title}</span>
+          <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0 mr-1.5 w-5 text-right tabular-nums">
+            {globalIndex}
+          </span>
+          {chapter.title ? (
+            <span className="text-sm truncate flex-1">{chapter.title}</span>
+          ) : (
+            <span className="text-sm truncate flex-1 text-gray-400 dark:text-gray-500">
+              第{globalIndex}章
+            </span>
+          )}
           {chapter.word_count > 0 && (
             <span className="text-xs text-gray-400 dark:text-gray-500 ml-1 shrink-0">
               {chapter.word_count}
@@ -112,6 +125,111 @@ function ChapterItem({
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// ── Sidebar outline navigator ──────────────────────────────────────────────
+
+function OutlineNode({ node, activeChapterId, onJump }: {
+  node: OutlineNode;
+  activeChapterId: string | null;
+  onJump: (chapterId: string) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const children = (node.children ?? []).slice().sort((a, b) => a.sort_order - b.sort_order);
+  const isLinked = node.level === 3 && !!node.linked_chapter_id;
+  const isActive = isLinked && node.linked_chapter_id === activeChapterId;
+
+  const INDENT = ["", "ml-0", "ml-3", "ml-6"] as const;
+  const TITLE_COLOR = node.level === 1
+    ? "text-indigo-600 dark:text-indigo-400 font-semibold text-xs"
+    : node.level === 2
+    ? "text-blue-600 dark:text-blue-400 font-medium text-xs"
+    : "text-gray-700 dark:text-gray-200 text-xs";
+
+  return (
+    <div className={INDENT[node.level]}>
+      <div
+        className={`flex items-center gap-1 px-1 py-0.5 rounded group ${
+          isActive ? "bg-indigo-100 dark:bg-indigo-900/40" : isLinked ? "hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer" : ""
+        }`}
+        onClick={() => {
+          if (isLinked && node.linked_chapter_id) onJump(node.linked_chapter_id);
+          else if (children.length > 0) setOpen((v) => !v);
+        }}
+      >
+        {children.length > 0 ? (
+          <button
+            className="text-gray-300 dark:text-gray-600 hover:text-gray-500 text-xs w-3 shrink-0"
+            onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+          >
+            {open ? "▾" : "▸"}
+          </button>
+        ) : (
+          <span className={`w-3 shrink-0 text-center text-xs ${isLinked ? (isActive ? "text-indigo-500" : "text-gray-300 dark:text-gray-600") : "text-gray-200 dark:text-gray-700"}`}>
+            {isLinked ? "•" : "·"}
+          </span>
+        )}
+        <span className={`truncate flex-1 leading-5 ${TITLE_COLOR} ${!node.title ? "italic opacity-50" : ""}`}>
+          {node.title || "未命名"}
+        </span>
+        {isLinked && !isActive && (
+          <span className="opacity-0 group-hover:opacity-100 text-xs text-indigo-400 shrink-0">→</span>
+        )}
+      </div>
+      {open && children.length > 0 && (
+        <div>
+          {children.map((child) => (
+            <OutlineNode key={child.id} node={child} activeChapterId={activeChapterId} onJump={onJump} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SidebarOutline({ projectId }: { projectId: string }) {
+  const { tree, nodes } = useOutlineStore();
+  const { activeChapterId, setActiveChapter, chapters } = useEditorStore();
+  const { openChapterTab } = useTabStore();
+
+  const roots = tree
+    .filter((n) => n.book_id === projectId && n.parent_id == null)
+    .sort((a, b) => a.sort_order - b.sort_order);
+
+  const hasNodes = nodes.some((n) => n.book_id === projectId);
+
+  if (!hasNodes) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-center px-4">
+        <div>
+          <p className="text-2xl mb-2">📋</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 leading-relaxed">
+            前往顶部「大纲」标签<br />添加大纲内容
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  function handleJump(chapterId: string) {
+    const ch = chapters.find(c => c.id === chapterId);
+    const title = ch?.title || "章节";
+    openChapterTab(chapterId, title);
+    setActiveChapter(chapterId);
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
+      {roots.map((node) => (
+        <OutlineNode
+          key={node.id}
+          node={node}
+          activeChapterId={activeChapterId}
+          onJump={handleJump}
+        />
+      ))}
     </div>
   );
 }
@@ -125,7 +243,9 @@ export function Sidebar() {
     renameChapter, renameVolume, setActiveChapter,
     reorderChapters, setChapterStatus,
   } = useEditorStore();
+  const { openChapterTab } = useTabStore();
 
+  const [sidebarMode, setSidebarMode] = useState<"chapters" | "outline">("chapters");
   const [renamingChapter, setRenamingChapter] = useState<string | null>(null);
   const [renamingVolume, setRenamingVolume] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -145,6 +265,18 @@ export function Sidebar() {
       .filter((c) => c.volume_id === volumeId)
       .sort((a, b) => a.sort_order - b.sort_order);
   }
+
+  // Build global chapter index map: chapterId → 1-based global number
+  const globalChapterIndex = (() => {
+    const map = new Map<string, number>();
+    let idx = 1;
+    for (const vol of [...volumes].sort((a, b) => a.sort_order - b.sort_order)) {
+      for (const ch of chaptersForVolume(vol.id)) {
+        map.set(ch.id, idx++);
+      }
+    }
+    return map;
+  })();
 
   function handleDragEnd(event: DragEndEvent, volumeId: string) {
     const { active, over } = event;
@@ -183,7 +315,37 @@ export function Sidebar() {
       className="flex flex-col h-full bg-gray-50 dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 select-none"
       onClick={() => setContextMenu(null)}
     >
-      <div className="flex-1 overflow-y-auto py-2">
+      {/* Mode toggle */}
+      <div className="flex border-b border-gray-200 dark:border-gray-700 shrink-0">
+        <button
+          onClick={() => setSidebarMode("chapters")}
+          className={`flex-1 py-1.5 text-xs font-medium transition-colors ${
+            sidebarMode === "chapters"
+              ? "text-indigo-600 border-b-2 border-indigo-500 bg-white dark:bg-gray-900"
+              : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+          }`}
+        >
+          章节
+        </button>
+        <button
+          onClick={() => setSidebarMode("outline")}
+          className={`flex-1 py-1.5 text-xs font-medium transition-colors ${
+            sidebarMode === "outline"
+              ? "text-indigo-600 border-b-2 border-indigo-500 bg-white dark:bg-gray-900"
+              : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+          }`}
+        >
+          大纲
+        </button>
+      </div>
+
+      {/* Outline mode */}
+      {sidebarMode === "outline" && projectId && (
+        <SidebarOutline projectId={projectId} />
+      )}
+
+      {/* Chapters mode */}
+      {sidebarMode === "chapters" && (<><div className="flex-1 overflow-y-auto py-2">
         {volumes.length === 0 && (
           <div className="px-4 py-8 text-center">
             <p className="text-2xl mb-2">📖</p>
@@ -253,10 +415,15 @@ export function Sidebar() {
                     <ChapterItem
                       key={chapter.id}
                       chapter={chapter}
+                      globalIndex={globalChapterIndex.get(chapter.id) ?? 0}
                       isActive={activeChapterId === chapter.id}
                       isRenaming={renamingChapter === chapter.id}
                       renameValue={renameValue}
-                      onSelect={() => setActiveChapter(chapter.id)}
+                      onSelect={() => {
+                        const title = chapter.title || `第${globalChapterIndex.get(chapter.id) ?? ""}章`;
+                        openChapterTab(chapter.id, title);
+                        setActiveChapter(chapter.id);
+                      }}
                       onContextMenu={(e) => handleContextMenu(e, "chapter", chapter.id)}
                       onRenameChange={setRenameValue}
                       onRenameCommit={async () => {
@@ -281,9 +448,7 @@ export function Sidebar() {
           );
         })}
       </div>
-
-      {/* Add volume */}
-      <div className="border-t border-gray-200 dark:border-gray-700 p-2">
+      <div className="border-t border-gray-200 dark:border-gray-700 p-2 shrink-0">
         <button
           onClick={() => projectId && createVolume(projectId)}
           className="w-full text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 hover:text-indigo-600 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
@@ -291,6 +456,7 @@ export function Sidebar() {
           + 新建卷
         </button>
       </div>
+      </>)}
 
       {/* Context menu */}
       {contextMenu && (

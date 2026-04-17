@@ -16,7 +16,7 @@ export const useCodexStore = create<CodexStore>((set) => ({
   loading: false,
 
   loadEntries: async (bookId) => {
-    set({ loading: true });
+    set({ entries: [], loading: true });
     const db = await getDb();
     const entries = await db.select<CodexEntity[]>(
       "SELECT * FROM codex_entities WHERE book_id = ? ORDER BY type, name",

@@ -3,10 +3,13 @@ import { useAiStore, CHAT_MODES, MODE_HINTS, type ChatMode } from "../../store/a
 import { useEditorStore } from "../../store/editorStore";
 import { useCodexStore } from "../../store/codexStore";
 import { useSettingsStore } from "../../store/settingsStore";
+import { useProjectDocsStore } from "../../store/projectDocsStore";
 import { aiStream } from "../../lib/ai";
 import { assembleContext } from "../../lib/context";
 import { dispatchInsertText } from "../editor/ChapterEditor";
 import { WriterBlockPanel } from "./WriterBlockPanel";
+import { InfoButton } from "../common/InfoButton";
+import { FeatureTip } from "../common/FeatureTip";
 
 // Quick-action buttons per mode
 const MODE_ACTIONS: Partial<Record<ChatMode, { label: string; prompt: string }[]>> = {
@@ -33,10 +36,11 @@ function MessageContent({ content, loading }: { content: string; loading?: boole
 }
 
 export function AiPanel() {
-  const { messages, mode, setMode, addMessage, updateMessage, clearMessages } = useAiStore();
+  const { messages, mode, pendingQuote, setMode, setPendingQuote, addMessage, updateMessage, clearMessages } = useAiStore();
   const { activeChapter, chapters } = useEditorStore();
   const { entries } = useCodexStore();
-  const { getActiveModel, getKeyForModel, loaded, load } = useSettingsStore();
+  const { getActiveModel, getKeyForModel, loaded, load, remoteUrl } = useSettingsStore();
+  const { getAlwaysDocs } = useProjectDocsStore();
 
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -63,6 +67,27 @@ export function AiPanel() {
     return () => window.removeEventListener("writerblock:continue", onContinue);
   }, []);
 
+  // Handle selected text sent from editor
+  useEffect(() => {
+    if (!pendingQuote) return;
+    const { text, mode: newMode, autoSend } = pendingQuote;
+    setPendingQuote(null);
+    setMode(newMode);
+    if (autoSend) {
+      // Directly send without going through input state
+      send(text, newMode);
+    } else {
+      setInput(text);
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.style.height = "auto";
+          textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
+          textareaRef.current.focus();
+        }
+      }, 0);
+    }
+  }, [pendingQuote]);
+
   // Scroll to bottom on new messages
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -70,7 +95,7 @@ export function AiPanel() {
 
   // Update context info when chapter/entries change
   useEffect(() => {
-    const ctx = assembleContext(activeChapter ?? null, chapters, entries, mode, useSettingsStore.getState().writingRules);
+    const ctx = assembleContext(activeChapter ?? null, chapters, entries, mode, useSettingsStore.getState().writingRules, getAlwaysDocs());
     setContextInfo({ entries: ctx.injectedEntries.length, chars: ctx.recentText.length, summaries: ctx.injectedSummaries });
   }, [activeChapter?.id, entries.length, mode]);
 
@@ -79,7 +104,7 @@ export function AiPanel() {
     clearMessages();
   }, [activeChapter?.id]);
 
-  async function send(promptOverride?: string) {
+  async function send(promptOverride?: string, modeOverride?: string) {
     const userText = (promptOverride ?? input).trim();
     if (!userText || isStreaming) return;
     setInput("");
@@ -90,7 +115,11 @@ export function AiPanel() {
       return;
     }
     const apiKey = model.provider === "ollama" ? "ollama" : getKeyForModel(model);
-    if (!apiKey) {
+    if (model.provider === "remote" && !remoteUrl) {
+      addMessage({ role: "assistant", content: "请先在 ⚙ 设置中填写远程代理服务器地址。" });
+      return;
+    }
+    if (!apiKey && model.provider !== "remote") {
       addMessage({ role: "assistant", content: "请先在 ⚙ 设置中填写 API 密钥。" });
       return;
     }
@@ -99,7 +128,7 @@ export function AiPanel() {
     const replyId = addMessage({ role: "assistant", content: "", loading: true });
     setIsStreaming(true);
 
-    const ctx = assembleContext(activeChapter ?? null, chapters, entries, mode, useSettingsStore.getState().writingRules);
+    const ctx = assembleContext(activeChapter ?? null, chapters, entries, modeOverride ?? mode, useSettingsStore.getState().writingRules, getAlwaysDocs());
 
     // Build message history for multi-turn (last 6 messages + new)
     const history = messages
@@ -118,6 +147,7 @@ export function AiPanel() {
         ],
         maxTokens: 1500,
         temperature: 0.75,
+        ...(model.provider === "remote" ? { remoteUrl } : {}),
         onChunk: (delta) => {
           updateMessage(replyId, delta, true);
         },
@@ -149,10 +179,17 @@ export function AiPanel() {
   const quickActions = MODE_ACTIONS[mode] ?? [];
 
   return (
-    <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-800">
+    <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-800 relative">
+      <FeatureTip
+        featureId="ai_panel"
+        title="AI 面板 — 你的写作助手"
+        body="在这里和 AI 对话，选择「续写」「润色」「对话生成」等模式。也可以在编辑器中选中文字，点击「发到AI」快速发送。"
+        cta="选一种模式，发送第一条消息"
+      />
+
       {/* Mode selector */}
       <div className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 shrink-0">
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-1 items-center">
           {CHAT_MODES.map((m) => (
             <button
               key={m}
@@ -166,6 +203,7 @@ export function AiPanel() {
               {m}
             </button>
           ))}
+          <InfoButton id="ai.modes" className="ml-1" />
         </div>
 
         {/* Context badge */}

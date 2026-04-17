@@ -23,10 +23,18 @@ export const MODE_HINTS: Record<ChatMode, string> = {
   卡文: "点击「分析」，AI 根据当前章节、伏笔和大纲给出 5 个方向",
 };
 
+export interface PendingQuote {
+  text: string;
+  mode: ChatMode;
+  autoSend: boolean;
+}
+
 interface AiStore {
   messages: ChatMessage[];
   mode: ChatMode;
+  pendingQuote: PendingQuote | null;
   setMode: (mode: ChatMode) => void;
+  setPendingQuote: (q: PendingQuote | null) => void;
   addMessage: (msg: Omit<ChatMessage, "id">) => string;
   updateMessage: (id: string, content: string, loading?: boolean) => void;
   clearMessages: () => void;
@@ -39,8 +47,10 @@ function uid() {
 export const useAiStore = create<AiStore>((set) => ({
   messages: [],
   mode: "自由",
+  pendingQuote: null,
 
   setMode: (mode) => set({ mode }),
+  setPendingQuote: (q) => set({ pendingQuote: q }),
 
   addMessage: (msg) => {
     const id = uid();

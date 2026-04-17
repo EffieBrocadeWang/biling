@@ -1,4 +1,5 @@
 import type { Chapter, CodexEntity } from "../types";
+import type { ProjectDoc } from "../store/projectDocsStore";
 import { CODEX_TYPE_LABELS } from "../types";
 
 const RECENT_CHARS = 2000;        // current chapter tail to inject (non-consistency modes)
@@ -107,7 +108,8 @@ export function assembleContext(
   allChapters: Chapter[],
   allEntries: CodexEntity[],
   mode: string,
-  writingRules: string
+  writingRules: string,
+  alwaysDocs: ProjectDoc[] = []
 ): AssembledContext {
   const chapterText = chapter ? docToText(chapter.content) : "";
   const injectChapter = !USER_PROVIDES_TEXT.has(mode);
@@ -141,6 +143,12 @@ export function assembleContext(
 
   if (writingRules) {
     parts.push(`\n【写作规则】\n${writingRules}`);
+  }
+
+  for (const doc of alwaysDocs) {
+    if (doc.content.trim()) {
+      parts.push(`\n【${doc.title}】\n${doc.content.trim()}`);
+    }
   }
 
   if (injectedEntries.length > 0) {

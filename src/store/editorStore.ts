@@ -70,12 +70,10 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const { chapters, projectId } = get();
     const existing = chapters.filter((c) => c.volume_id === volumeId);
     const sortOrder = existing.length;
-    // All loaded chapters belong to current project
-    const title = `第 ${chapters.length + 1} 章`;
     const id = generateId();
     await db.execute(
       "INSERT INTO chapters (id, book_id, volume_id, title, content, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
-      [id, projectId, volumeId, title, JSON.stringify({ type: "doc", content: [] }), sortOrder]
+      [id, projectId, volumeId, "", JSON.stringify({ type: "doc", content: [] }), sortOrder]
     );
     const rows = await db.select<Chapter[]>(
       "SELECT * FROM chapters WHERE id = ?",

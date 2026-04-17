@@ -30,6 +30,12 @@ interface SettingsStore {
   dailyGoal: number;
   appearance: EditorAppearance;
   theme: ThemeMode;
+  remoteUrl: string;
+  // Tutorial state
+  onboardingCompleted: boolean;
+  seenFeatures: string[];      // e.g. ["codex", "outline", "ai_panel"]
+  allTipsDisabled: boolean;
+  showHelpButtons: boolean;
   loaded: boolean;
   load: () => Promise<void>;
   setActiveModel: (modelId: string) => Promise<void>;
@@ -38,6 +44,12 @@ interface SettingsStore {
   setDailyGoal: (goal: number) => Promise<void>;
   setAppearance: (patch: Partial<EditorAppearance>) => Promise<void>;
   setTheme: (theme: ThemeMode) => Promise<void>;
+  setRemoteUrl: (url: string) => Promise<void>;
+  completeOnboarding: () => Promise<void>;
+  markFeatureSeen: (feature: string) => Promise<void>;
+  disableAllTips: () => Promise<void>;
+  setShowHelpButtons: (show: boolean) => Promise<void>;
+  resetTutorial: () => Promise<void>;
   getActiveModel: () => AIModel | null;
   getKeyForModel: (model: AIModel) => string;
 }
@@ -49,6 +61,11 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   dailyGoal: 3000,
   appearance: DEFAULT_APPEARANCE,
   theme: "system" as ThemeMode,
+  remoteUrl: "",
+  onboardingCompleted: false,
+  seenFeatures: [],
+  allTipsDisabled: false,
+  showHelpButtons: true,
   loaded: false,
 
   load: async () => {
@@ -62,17 +79,30 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     let dailyGoal = 3000;
     let appearance = { ...DEFAULT_APPEARANCE };
     let theme: ThemeMode = "system";
+    let remoteUrl = "";
+    let onboardingCompleted = false;
+    let seenFeatures: string[] = [];
+    let allTipsDisabled = false;
+    let showHelpButtons = true;
     for (const row of rows) {
       if (row.key === "active_model") activeModelId = row.value;
       else if (row.key === "writing_rules") writingRules = row.value;
       else if (row.key === "daily_goal") dailyGoal = parseInt(row.value) || 3000;
       else if (row.key === "theme") theme = (row.value as ThemeMode) || "system";
+      else if (row.key === "ai_remote_url") remoteUrl = row.value;
+      else if (row.key === "tutorial.onboarding_completed") onboardingCompleted = row.value === "true";
+      else if (row.key === "tutorial.all_tips_disabled") allTipsDisabled = row.value === "true";
+      else if (row.key === "tutorial.show_help_buttons") showHelpButtons = row.value !== "false";
+      else if (row.key === "tutorial.seen_features") {
+        try { seenFeatures = JSON.parse(row.value); } catch { /* ignore */ }
+      }
       else if (row.key === "appearance") {
         try { appearance = { ...DEFAULT_APPEARANCE, ...JSON.parse(row.value) }; } catch { /* ignore */ }
       }
       else if (row.key.startsWith("ai_key_")) keys.push({ provider: row.key.slice(7), key: row.value });
     }
-    set({ activeModelId, providerKeys: keys, writingRules, dailyGoal, appearance, theme, loaded: true });
+    set({ activeModelId, providerKeys: keys, writingRules, dailyGoal, appearance, theme, remoteUrl,
+          onboardingCompleted, seenFeatures, allTipsDisabled, showHelpButtons, loaded: true });
   },
 
   setActiveModel: async (modelId) => {
@@ -126,6 +156,62 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       [JSON.stringify(next)]
     );
     set({ appearance: next });
+  },
+
+  completeOnboarding: async () => {
+    const db = await getDb();
+    await db.execute(
+      "INSERT OR REPLACE INTO settings (key, value) VALUES ('tutorial.onboarding_completed', 'true')"
+    );
+    set({ onboardingCompleted: true });
+  },
+
+  markFeatureSeen: async (feature) => {
+    const { seenFeatures } = get();
+    if (seenFeatures.includes(feature)) return;
+    const next = [...seenFeatures, feature];
+    const db = await getDb();
+    await db.execute(
+      "INSERT OR REPLACE INTO settings (key, value) VALUES ('tutorial.seen_features', ?)",
+      [JSON.stringify(next)]
+    );
+    set({ seenFeatures: next });
+  },
+
+  disableAllTips: async () => {
+    const db = await getDb();
+    await db.execute(
+      "INSERT OR REPLACE INTO settings (key, value) VALUES ('tutorial.all_tips_disabled', 'true')"
+    );
+    set({ allTipsDisabled: true });
+  },
+
+  setShowHelpButtons: async (show) => {
+    const db = await getDb();
+    await db.execute(
+      "INSERT OR REPLACE INTO settings (key, value) VALUES ('tutorial.show_help_buttons', ?)",
+      [String(show)]
+    );
+    set({ showHelpButtons: show });
+  },
+
+  resetTutorial: async () => {
+    const db = await getDb();
+    await db.execute("DELETE FROM settings WHERE key LIKE 'tutorial.%'");
+    set({ onboardingCompleted: false, seenFeatures: [], allTipsDisabled: false, showHelpButtons: true });
+  },
+
+  setRemoteUrl: async (url) => {
+    const db = await getDb();
+    if (url.trim()) {
+      await db.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_remote_url', ?)",
+        [url.trim()]
+      );
+    } else {
+      await db.execute("DELETE FROM settings WHERE key = 'ai_remote_url'");
+    }
+    set({ remoteUrl: url.trim() });
   },
 
   getActiveModel: () => {

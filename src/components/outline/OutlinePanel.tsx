@@ -5,6 +5,45 @@ import { useSettingsStore } from "../../store/settingsStore";
 import { aiStream } from "../../lib/ai";
 import type { OutlineNode } from "../../types";
 
+interface ChatMessage { role: "user" | "assistant"; content: string; }
+
+function formatOutlineForPrompt(nodes: OutlineNode[], projectId: string): string {
+  const flat = nodes.filter((n) => n.book_id === projectId);
+  if (flat.length === 0) return "（尚无大纲节点）";
+  // Build nested text
+  function render(node: OutlineNode, indent: string): string {
+    const levelLabel = ["", "全书大纲", "卷纲", "章纲"][node.level] ?? "";
+    const desc = node.content ? `：${node.content}` : "";
+    let text = `${indent}[${levelLabel}] ${node.title || "未命名"}${desc}`;
+    (node.children ?? [])
+      .slice()
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .forEach((c) => { text += "\n" + render(c, indent + "  "); });
+    return text;
+  }
+  // Build proper tree
+  const map = new Map<string, OutlineNode>();
+  flat.forEach((n) => map.set(n.id, { ...n, children: [] }));
+  const roots: OutlineNode[] = [];
+  flat.forEach((n) => {
+    const node = map.get(n.id)!;
+    if (n.parent_id == null) roots.push(node);
+    else map.get(n.parent_id)?.children?.push(node);
+  });
+  return roots
+    .slice()
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((r) => render(r, ""))
+    .join("\n");
+}
+
+const STARTER_PROMPTS = [
+  "分析当前大纲的节奏和爽点分布，哪里需要加强？",
+  "根据现有大纲，帮我规划第二幕的高潮情节",
+  "这个大纲有什么常见的读者会吐槽的问题？",
+  "帮我为当前大纲补充 3 个伏笔和对应的回收时机",
+];
+
 const LEVEL_LABELS = ["", "全书大纲", "卷纲", "章纲"];
 const LEVEL_COLORS = ["", "text-indigo-700 font-semibold", "text-blue-600 font-medium", "text-gray-700 dark:text-gray-200"];
 const LEVEL_BG = ["", "bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200", "bg-blue-50 border-blue-200", "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700"];
@@ -199,6 +238,14 @@ export function OutlinePanel({ projectId, projectName, projectGenre, projectSyno
   const [aiError, setAiError] = useState("");
   const [showAiPreview, setShowAiPreview] = useState(false);
 
+  // AI chat state
+  const [showChat, setShowChat] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
+
   useEffect(() => {
     load(projectId);
   }, [projectId]);
@@ -315,6 +362,67 @@ export function OutlinePanel({ projectId, projectName, projectGenre, projectSyno
     setAiOutput("");
   }
 
+  async function handleChatSend(text?: string) {
+    const userText = (text ?? chatInput).trim();
+    if (!userText || chatLoading) return;
+
+    const model = getActiveModel();
+    if (!model) return;
+    const key = model.provider === "ollama" ? "ollama" : getKeyForModel(model);
+    if (!key) return;
+
+    const outlineText = formatOutlineForPrompt(nodes, projectId);
+    const systemPrompt = `你是一位专业的网文大纲顾问，正在帮助作者完善《${projectName}》（${projectGenre}类）的大纲。
+
+当前大纲结构：
+${outlineText}
+
+作品简介：${projectSynopsis || "（暂无）"}
+
+请根据大纲内容回答作者的问题，给出具体、可操作的建议。回复用中文，简洁有力。`;
+
+    const newMessages: ChatMessage[] = [...chatMessages, { role: "user", content: userText }];
+    setChatMessages(newMessages);
+    setChatInput("");
+    setChatLoading(true);
+
+    // Add placeholder assistant message
+    setChatMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+
+    try {
+      let full = "";
+      await aiStream({
+        model,
+        apiKey: key,
+        messages: [
+          { role: "system", content: systemPrompt },
+          ...newMessages.map((m) => ({ role: m.role, content: m.content })),
+        ],
+        maxTokens: 1500,
+        temperature: 0.75,
+        onChunk: (delta) => {
+          full += delta;
+          setChatMessages((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = { role: "assistant", content: full };
+            return updated;
+          });
+          chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        },
+      });
+    } catch (err) {
+      setChatMessages((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { role: "assistant", content: `❌ ${err instanceof Error ? err.message : "请求失败"}` };
+        return updated;
+      });
+    } finally {
+      setChatLoading(false);
+    }
+  }
+
   return (
     <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-800">
       {/* Header */}
@@ -327,11 +435,17 @@ export function OutlinePanel({ projectId, projectName, projectGenre, projectSyno
         </div>
         <div className="flex gap-2">
           <button
+            onClick={() => { setShowChat((v) => !v); setTimeout(() => chatInputRef.current?.focus(), 100); }}
+            className={`text-xs px-3 py-1.5 rounded transition-colors ${showChat ? "bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600"}`}
+          >
+            💬 AI 对话
+          </button>
+          <button
             onClick={handleAiGenerate}
             disabled={generating}
             className="text-xs px-3 py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
           >
-            {generating ? "AI 生成中…" : "✦ AI 生成大纲"}
+            {generating ? "AI 生成中…" : "✦ 生成大纲"}
           </button>
           <button
             onClick={handleAddRoot}
@@ -396,12 +510,84 @@ export function OutlinePanel({ projectId, projectName, projectGenre, projectSyno
       </div>
 
       {/* Legend */}
-      {nodes.filter((n) => n.book_id === projectId).length > 0 && (
+      {!showChat && nodes.filter((n) => n.book_id === projectId).length > 0 && (
         <div className="shrink-0 border-t border-gray-200 dark:border-gray-700 px-4 py-2 bg-white dark:bg-gray-900 flex gap-4 text-xs text-gray-400 dark:text-gray-500">
           <span className="text-indigo-600">■ 全书大纲</span>
           <span className="text-blue-500">■ 卷纲</span>
           <span className="text-gray-500 dark:text-gray-400 dark:text-gray-500">■ 章纲</span>
           <span className="ml-auto">点击标题展开详情 · ✎ 编辑标题</span>
+        </div>
+      )}
+
+      {/* AI Chat pane */}
+      {showChat && (
+        <div className="shrink-0 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col" style={{ height: "42%" }}>
+          {/* Chat header */}
+          <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-gray-800">
+            <span className="text-xs font-medium text-gray-600 dark:text-gray-300">AI 大纲对话</span>
+            <button
+              onClick={() => { setChatMessages([]); setChatInput(""); }}
+              className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+              title="清空对话"
+            >清空</button>
+          </div>
+
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-0">
+            {chatMessages.length === 0 ? (
+              <div className="space-y-1.5 pt-1">
+                <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">快速提问：</p>
+                {STARTER_PROMPTS.map((p, i) => (
+                  <button
+                    key={i}
+                    onClick={() => handleChatSend(p)}
+                    className="block w-full text-left text-xs text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-lg px-3 py-1.5 transition-colors"
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              chatMessages.map((msg, i) => (
+                <div
+                  key={i}
+                  className={`rounded-lg px-3 py-2 text-xs leading-relaxed ${
+                    msg.role === "user"
+                      ? "bg-indigo-600 text-white ml-6 self-end"
+                      : "bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 mr-6"
+                  }`}
+                >
+                  {msg.content || (msg.role === "assistant" && chatLoading ? <span className="opacity-50 animate-pulse">思考中…</span> : "")}
+                </div>
+              ))
+            )}
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* Input */}
+          <div className="px-3 pb-3 pt-2 border-t border-gray-100 dark:border-gray-800 flex gap-2 items-end">
+            <textarea
+              ref={chatInputRef}
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleChatSend();
+                }
+              }}
+              placeholder="关于大纲的问题… (Enter 发送)"
+              rows={2}
+              className="flex-1 text-xs border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 resize-none outline-none focus:border-indigo-300 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200"
+            />
+            <button
+              onClick={() => handleChatSend()}
+              disabled={chatLoading || !chatInput.trim()}
+              className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 transition-colors shrink-0"
+            >
+              {chatLoading ? "…" : "发送"}
+            </button>
+          </div>
         </div>
       )}
     </div>

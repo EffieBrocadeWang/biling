@@ -10,6 +10,7 @@ const PROVIDERS: { id: AIProvider; label: string; placeholder: string; noKey?: b
   { id: "glm",      label: "智谱 GLM",       placeholder: "..." },
   { id: "openai",   label: "OpenAI",         placeholder: "sk-..." },
   { id: "claude",   label: "Anthropic",      placeholder: "sk-ant-..." },
+  { id: "remote",   label: "远程代理",        placeholder: "access-token..." },
 ];
 
 const FONT_SIZES = [16, 18, 20, 22];
@@ -21,7 +22,7 @@ const MAX_WIDTHS = [
   { value: 1100, label: "全宽 1100px" },
 ];
 
-type Tab = "ai" | "appearance" | "writing";
+type Tab = "ai" | "appearance" | "writing" | "general";
 
 interface Props {
   onClose: () => void;
@@ -33,11 +34,15 @@ export function SettingsModal({ onClose }: Props) {
     appearance, setAppearance,
     theme, setTheme,
     dailyGoal, setDailyGoal,
+    remoteUrl, setRemoteUrl,
+    showHelpButtons, setShowHelpButtons, resetTutorial,
   } = useSettingsStore();
 
   const [tab, setTab] = useState<Tab>("ai");
   const [keyDraft, setKeyDraft] = useState<Record<string, string>>({});
   const [goalDraft, setGoalDraft] = useState(String(dailyGoal));
+  const [remoteUrlDraft, setRemoteUrlDraft] = useState(remoteUrl);
+  const [testStatus, setTestStatus] = useState<"idle" | "testing" | "ok" | "fail">("idle");
 
   useEffect(() => {
     if (!loaded) load();
@@ -50,11 +55,31 @@ export function SettingsModal({ onClose }: Props) {
   }, [providerKeys]);
 
   useEffect(() => {
+    setRemoteUrlDraft(remoteUrl);
+  }, [remoteUrl]);
+
+  useEffect(() => {
     setGoalDraft(String(dailyGoal));
   }, [dailyGoal]);
 
   async function saveKey(provider: string) {
     await setProviderKey(provider, keyDraft[provider] ?? "");
+  }
+
+  async function testRemoteConnection() {
+    const url = remoteUrlDraft.trim().replace(/\/$/, "");
+    if (!url) return;
+    setTestStatus("testing");
+    try {
+      const token = keyDraft["remote"] ?? "";
+      const res = await fetch(`${url}/v1/models`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        signal: AbortSignal.timeout(5000),
+      });
+      setTestStatus(res.ok ? "ok" : "fail");
+    } catch {
+      setTestStatus("fail");
+    }
   }
 
   const modelsForProvider = (provider: AIProvider) =>
@@ -64,6 +89,7 @@ export function SettingsModal({ onClose }: Props) {
     { id: "ai",         label: "AI 模型" },
     { id: "appearance", label: "外观" },
     { id: "writing",    label: "写作" },
+    { id: "general",    label: "通用" },
   ];
 
   return (
@@ -154,6 +180,51 @@ export function SettingsModal({ onClose }: Props) {
               <p className="text-xs text-gray-400">
                 API 密钥仅存储在本地，不经过任何服务器。AI 请求直接从你的设备发往各供应商。
               </p>
+
+              {/* ── Remote Proxy Config ─────────────────────── */}
+              <div className="pt-3 border-t border-gray-100">
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                  远程 LLM 代理
+                </label>
+                <p className="text-xs text-gray-400 mb-3">
+                  连接自建的代理服务器（如家里的 Mac Mini 运行 Ollama），无需 API 费用。
+                </p>
+                <div className="space-y-2">
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">代理服务器地址</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={remoteUrlDraft}
+                        onChange={(e) => { setRemoteUrlDraft(e.target.value); setTestStatus("idle"); }}
+                        placeholder="http://192.168.1.100:3000"
+                        className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                      <button
+                        onClick={async () => { await setRemoteUrl(remoteUrlDraft); }}
+                        className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+                      >
+                        保存
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={testRemoteConnection}
+                      disabled={!remoteUrlDraft.trim() || testStatus === "testing"}
+                      className="px-3 py-1.5 text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg transition-colors disabled:opacity-40"
+                    >
+                      {testStatus === "testing" ? "检测中…" : "测试连接"}
+                    </button>
+                    {testStatus === "ok" && (
+                      <span className="text-xs text-green-600">✓ 连接成功</span>
+                    )}
+                    {testStatus === "fail" && (
+                      <span className="text-xs text-red-500">✗ 连接失败，请检查地址或令牌</span>
+                    )}
+                  </div>
+                </div>
+              </div>
             </>
           )}
 
@@ -362,6 +433,50 @@ export function SettingsModal({ onClose }: Props) {
                 <p className="text-xs text-gray-400 leading-relaxed">
                   每日目标在「统计」面板中显示进度条。目标仅用于激励，不影响任何功能。
                 </p>
+              </div>
+            </>
+          )}
+
+          {/* ── General Tab ──────────────────────────────── */}
+          {tab === "general" && (
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                  帮助提示
+                </label>
+                <div className="space-y-3">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={showHelpButtons}
+                      onChange={(e) => setShowHelpButtons(e.target.checked)}
+                      className="w-4 h-4 accent-indigo-500"
+                    />
+                    <div>
+                      <p className="text-sm text-gray-700">显示功能旁的 ⓘ 帮助按钮</p>
+                      <p className="text-xs text-gray-400 mt-0.5">点击可查看各功能的使用说明</p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-gray-100">
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                  新手引导
+                </label>
+                <p className="text-xs text-gray-400 mb-3">
+                  重置后，下次启动会重新显示新手引导和功能发现提示。
+                </p>
+                <button
+                  onClick={async () => {
+                    if (confirm("确定要重置所有引导状态吗？")) {
+                      await resetTutorial();
+                    }
+                  }}
+                  className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
+                >
+                  重置所有引导
+                </button>
               </div>
             </>
           )}

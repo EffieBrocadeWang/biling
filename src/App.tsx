@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import "./App.css";
 import { ProjectList } from "./components/project/ProjectList";
 import { EditorLayout } from "./components/layout/EditorLayout";
+import { OnboardingWizard } from "./components/onboarding/OnboardingWizard";
 import { useSettingsStore } from "./store/settingsStore";
 import type { Book } from "./types";
 
@@ -10,7 +11,7 @@ type View = "projects" | "editor";
 export default function App() {
   const [view, setView] = useState<View>("projects");
   const [activeProject, setActiveProject] = useState<Book | null>(null);
-  const { theme, load, loaded } = useSettingsStore();
+  const { theme, load, loaded, onboardingCompleted } = useSettingsStore();
 
   useEffect(() => {
     if (!loaded) load();
@@ -41,6 +42,11 @@ export default function App() {
   function goBack() {
     setView("projects");
     setActiveProject(null);
+  }
+
+  // Show onboarding wizard on first launch (after settings loaded)
+  if (loaded && !onboardingCompleted) {
+    return <OnboardingWizard onComplete={() => {}} />;
   }
 
   if (view === "editor" && activeProject) {
