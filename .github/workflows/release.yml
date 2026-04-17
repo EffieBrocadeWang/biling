@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest   # Apple Silicon (aarch64)
+            args: "--target aarch64-apple-darwin"
+          - platform: windows-latest
+            args: "--bundles nsis"  # skip WiX/MSI — light.exe chokes on Chinese product name in path
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      - name: Build Tauri app (macOS)
+        if: matrix.platform == 'macos-latest'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "笔灵 ${{ github.ref_name }}"
+          releaseBody: |
+            ## 下载说明
+
+            - **macOS（Apple Silicon）**：下载 `.dmg` 文件，双击安装
+            - **Windows**：下载 `_x64-setup.exe` 安装包
+
+            > 首次运行 macOS 版本若提示"无法验证开发者"，请右键 → 打开。
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+
+      - name: Build Tauri app (Windows)
+        if: matrix.platform == 'windows-latest'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "笔灵 ${{ github.ref_name }}"
+          releaseBody: ""
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+
+      # ── Upload artifacts (also accessible from Actions tab) ──────────────────
+
+      - name: Upload macOS DMG
+        if: matrix.platform == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: biling-macos-dmg
+          path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: warn
+
+      - name: Upload Windows NSIS installer
+        if: matrix.platform == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: biling-windows-setup
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: warn
+
