@@ -36,6 +36,7 @@
     "macOS": {
       "minimumSystemVersion": "10.15"
     },
+    "windows": {},
     "shortDescription": "AI 网文创作助手",
     "longDescription": "笔灵是一款专为中文网文作者设计的 AI 写作助手，提供智能续写、世界百科、大纲管理、灵感收集等功能。"
   }
