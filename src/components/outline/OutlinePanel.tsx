@@ -45,8 +45,8 @@ const STARTER_PROMPTS = [
 ];
 
 const LEVEL_LABELS = ["", "全书大纲", "卷纲", "章纲"];
-const LEVEL_COLORS = ["", "text-indigo-700 font-semibold", "text-blue-600 font-medium", "text-gray-700 dark:text-gray-200"];
-const LEVEL_BG = ["", "bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200", "bg-blue-50 border-blue-200", "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700"];
+const LEVEL_COLORS = ["", "text-slate-700 dark:text-slate-300 font-semibold", "text-slate-600 dark:text-slate-400 font-medium", "text-gray-600 dark:text-gray-300"];
+const LEVEL_BG = ["", "bg-slate-50 dark:bg-slate-900/30 border-slate-200 dark:border-slate-700", "bg-gray-50 dark:bg-gray-800/60 border-gray-200 dark:border-gray-700", "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700"];
 const LEVEL_INDENT = ["", "ml-0", "ml-6", "ml-12"];
 
 interface NodeRowProps {
@@ -158,11 +158,14 @@ function NodeRow({ node, projectId, siblings, idx }: NodeRowProps) {
                 <textarea
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
-                  onBlur={commitContent}
                   rows={3}
                   className="w-full text-xs bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded px-2 py-1.5 resize-none outline-none focus:border-indigo-300 leading-relaxed"
                   placeholder="要点描述（可选）"
                 />
+                <button
+                  onClick={commitContent}
+                  className="text-xs px-2 py-1 bg-slate-600 hover:bg-slate-700 text-white rounded transition-colors"
+                >保存</button>
                 {node.level === 3 && (
                   <div className="flex items-center gap-1">
                     <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">关联章节:</span>
@@ -182,20 +185,20 @@ function NodeRow({ node, projectId, siblings, idx }: NodeRowProps) {
             )}
           </div>
 
-          {/* hover actions */}
-          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+          {/* actions */}
+          <div className="flex items-center gap-0.5 shrink-0">
             {idx > 0 && (
-              <button onClick={() => moveUp(node.id)} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 text-xs px-1" title="上移">↑</button>
+              <button onClick={() => moveUp(node.id)} className="text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-300 text-xs w-5 h-5 flex items-center justify-center rounded hover:bg-gray-100 dark:hover:bg-gray-700" title="上移">↑</button>
             )}
             {idx < siblings.length - 1 && (
-              <button onClick={() => moveDown(node.id)} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 text-xs px-1" title="下移">↓</button>
+              <button onClick={() => moveDown(node.id)} className="text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-300 text-xs w-5 h-5 flex items-center justify-center rounded hover:bg-gray-100 dark:hover:bg-gray-700" title="下移">↓</button>
             )}
             {node.level < 3 && (
-              <button onClick={addChild} className="text-gray-400 dark:text-gray-500 hover:text-indigo-500 text-xs px-1" title={`添加${LEVEL_LABELS[node.level + 1]}`}>+</button>
+              <button onClick={addChild} className="text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 font-bold text-sm w-5 h-5 flex items-center justify-center rounded hover:bg-slate-100 dark:hover:bg-slate-700" title={`添加${LEVEL_LABELS[node.level + 1]}`}>+</button>
             )}
             <button
               onClick={() => removeNode(node.id)}
-              className="text-gray-400 dark:text-gray-500 hover:text-red-500 text-xs px-1"
+              className="text-gray-300 dark:text-gray-600 hover:text-red-500 text-xs w-5 h-5 flex items-center justify-center rounded hover:bg-red-50 dark:hover:bg-red-900/20"
               title="删除"
             >✕</button>
           </div>
@@ -372,14 +375,14 @@ export function OutlinePanel({ projectId, projectName, projectGenre, projectSyno
     if (!key) return;
 
     const outlineText = formatOutlineForPrompt(nodes, projectId);
-    const systemPrompt = `你是一位专业的网文大纲顾问，正在帮助作者完善《${projectName}》（${projectGenre}类）的大纲。
+    const systemPrompt = `你是专业网文大纲顾问，帮助作者完善《${projectName}》（${projectGenre}类）大纲。
 
-当前大纲结构：
+当前大纲：
 ${outlineText}
 
-作品简介：${projectSynopsis || "（暂无）"}
+简介：${projectSynopsis || "（暂无）"}
 
-请根据大纲内容回答作者的问题，给出具体、可操作的建议。回复用中文，简洁有力。`;
+回复要求：中文，简洁直接，不超过150字，不废话，给具体建议。`;
 
     const newMessages: ChatMessage[] = [...chatMessages, { role: "user", content: userText }];
     setChatMessages(newMessages);
@@ -400,7 +403,7 @@ ${outlineText}
           { role: "system", content: systemPrompt },
           ...newMessages.map((m) => ({ role: m.role, content: m.content })),
         ],
-        maxTokens: 1500,
+        maxTokens: 600,
         temperature: 0.75,
         onChunk: (delta) => {
           full += delta;
@@ -460,13 +463,19 @@ ${outlineText}
       {showAiPreview && (
         <div className="shrink-0 border-b border-gray-200 dark:border-gray-700 bg-amber-50 dark:bg-amber-900/20 p-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-amber-700">AI 生成预览</span>
-            <button onClick={() => setShowAiPreview(false)} className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300 dark:text-gray-600">✕</button>
+            <span className="text-xs font-medium text-amber-700 dark:text-amber-400">AI 生成预览</span>
+            <button onClick={() => setShowAiPreview(false)} className="text-xs text-gray-400 hover:text-gray-600">✕</button>
           </div>
           {aiError && <p className="text-xs text-red-500 mb-2">{aiError}</p>}
-          <pre className="text-xs bg-white dark:bg-gray-900 border border-amber-200 rounded p-2 max-h-48 overflow-y-auto whitespace-pre-wrap font-mono">
-            {aiOutput || (generating ? "生成中…" : "")}
-          </pre>
+          {generating ? (
+            <div className="text-xs text-amber-600 dark:text-amber-400 py-4 text-center animate-pulse">
+              ✦ AI 正在创作大纲，请稍候…
+            </div>
+          ) : aiOutput && !aiError ? (
+            <div className="text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-800 rounded p-2 max-h-48 overflow-y-auto">
+              大纲已生成，点击「导入大纲」添加到树中
+            </div>
+          ) : null}
           {!generating && aiOutput && !aiError && (
             <div className="flex gap-2 mt-2">
               <button

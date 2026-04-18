@@ -28,6 +28,7 @@ interface ChapterItemProps {
   isRenaming: boolean;
   renameValue: string;
   onSelect: () => void;
+  onStartRename: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onRenameChange: (v: string) => void;
   onRenameCommit: () => void;
@@ -41,6 +42,7 @@ function ChapterItem({
   isRenaming,
   renameValue,
   onSelect,
+  onStartRename,
   onContextMenu,
   onRenameChange,
   onRenameCommit,
@@ -112,9 +114,15 @@ function ChapterItem({
             {globalIndex}
           </span>
           {chapter.title ? (
-            <span className="text-sm truncate flex-1">{chapter.title}</span>
+            <span
+              className="text-sm truncate flex-1 cursor-text"
+              onClick={(e) => { e.stopPropagation(); onStartRename(); }}
+            >{chapter.title}</span>
           ) : (
-            <span className="text-sm truncate flex-1 text-gray-400 dark:text-gray-500">
+            <span
+              className="text-sm truncate flex-1 text-gray-400 dark:text-gray-500 cursor-text"
+              onClick={(e) => { e.stopPropagation(); onStartRename(); }}
+            >
               第{globalIndex}章
             </span>
           )}
@@ -147,10 +155,10 @@ function OutlineNode({ node, activeChapterId, onJump, onCreateLinked }: {
 
   const INDENT = ["", "ml-0", "ml-3", "ml-6"] as const;
   const TITLE_COLOR = node.level === 1
-    ? "text-indigo-600 dark:text-indigo-400 font-semibold text-xs"
+    ? "text-slate-700 dark:text-slate-300 font-semibold text-xs"
     : node.level === 2
-    ? "text-blue-600 dark:text-blue-400 font-medium text-xs"
-    : "text-gray-700 dark:text-gray-200 text-xs";
+    ? "text-slate-600 dark:text-slate-400 font-medium text-xs"
+    : "text-gray-600 dark:text-gray-300 text-xs";
 
   return (
     <div className={INDENT[node.level]}>
@@ -577,7 +585,7 @@ export function Sidebar() {
                   )}
                   <button
                     onClick={() => createChapter(volume.id)}
-                    className="opacity-0 group-hover:opacity-100 text-gray-400 dark:text-gray-500 hover:text-indigo-600 text-lg leading-none ml-1"
+                    className="text-gray-400 dark:text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 w-5 h-5 rounded flex items-center justify-center text-base leading-none ml-1 transition-colors"
                     title="新建章节"
                   >
                     +
@@ -602,6 +610,7 @@ export function Sidebar() {
                         openChapterTab(chapter.id, title);
                         setActiveChapter(chapter.id);
                       }}
+                      onStartRename={() => startRenameChapter(chapter.id, chapter.title)}
                       onContextMenu={(e) => handleContextMenu(e, "chapter", chapter.id)}
                       onRenameChange={setRenameValue}
                       onRenameCommit={async () => {

@@ -92,7 +92,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const db = await getDb();
     const existing = get().volumes;
     const sortOrder = existing.length;
-    const title = `第 ${sortOrder + 1} 卷`;
+    const CN = ["一","二","三","四","五","六","七","八","九","十","十一","十二","十三","十四","十五","十六","十七","十八","十九","二十"];
+    const title = `第${CN[sortOrder] ?? sortOrder + 1}卷`;
     const id = generateId();
     await db.execute(
       "INSERT INTO volumes (id, book_id, title, sort_order) VALUES (?, ?, ?, ?)",

@@ -58,8 +58,7 @@ export const useOutlineStore = create<OutlineStore>((set, get) => ({
       title: "", content: "", level, linked_chapter_id: null,
       sort_order: sortOrder, created_at: new Date().toISOString(),
     };
-    const updated = [...get().nodes, newNode];
-    set({ nodes: updated, tree: buildTree(updated) });
+    set((s) => { const u = [...s.nodes, newNode]; return { nodes: u, tree: buildTree(u) }; });
     return newNode;
   },
 

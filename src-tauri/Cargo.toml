@@ -1,6 +1,6 @@
 [package]
 name = "biling"
-version = "0.1.0"
+version = "0.1.3"
 description = "AI 网文创作助手"
 authors = ["shrimp"]
 edition = "2021"

@@ -56,13 +56,13 @@ const PLACE_STYLES = [
 
 // ── Prompts ────────────────────────────────────────────────────────────────
 
-function buildCharPrompt(genre: string, gender: string, style: string, notes: string, count: number) {
+function buildCharPrompt(genre: string, gender: string, styles: string[], notes: string, count: number) {
   const genderLabel = { male: "男性", female: "女性", neutral: "中性/不限" }[gender] ?? "不限";
-  const styleLabel = CHAR_STYLES.find((s) => s.id === style)?.label ?? style;
+  const styleLabels = styles.map((s) => CHAR_STYLES.find((c) => c.id === s)?.label ?? s).join("、") || "不限";
   return `你是一位精通中文网文起名的大师，专门为${genre}类小说角色取名。
 
 请为一位${genderLabel}角色起 ${count} 个名字，要求：
-- 风格：${styleLabel}
+- 风格：${styleLabels}
 - 类型：${genre}${notes ? `\n- 备注：${notes}` : ""}
 - 名字符合${genre}世界观，朗朗上口，有记忆点
 - 可以是单名（一字）或双名（两字）
@@ -71,13 +71,13 @@ function buildCharPrompt(genre: string, gender: string, style: string, notes: st
 [{ "name": "名字", "meaning": "字义/寓意（1句话）" }]`;
 }
 
-function buildPlacePrompt(genre: string, placeType: string, style: string, notes: string, count: number) {
+function buildPlacePrompt(genre: string, placeType: string, styles: string[], notes: string, count: number) {
   const typeLabel = PLACE_TYPES.find((t) => t.id === placeType)?.label ?? placeType;
-  const styleLabel = PLACE_STYLES.find((s) => s.id === style)?.label ?? style;
+  const styleLabels = styles.map((s) => PLACE_STYLES.find((p) => p.id === s)?.label ?? s).join("、") || "不限";
   return `你是一位精通中文网文世界观构建的大师，专门为${genre}类小说设计地名。
 
 请为${genre}类小说创造 ${count} 个「${typeLabel}」类型的地名，要求：
-- 风格：${styleLabel}
+- 风格：${styleLabels}
 - 类型：${genre}${notes ? `\n- 备注：${notes}` : ""}
 - 地名符合${genre}世界观，有辨识度，听起来有画面感
 - 2-5个字为宜
@@ -93,9 +93,13 @@ function CharNameForm({ genre, onGenerate }: {
   onGenerate: (prompt: string) => void;
 }) {
   const [gender, setGender] = useState("neutral");
-  const [style, setStyle] = useState("heroic");
+  const [styles, setStyles] = useState<string[]>(["heroic"]);
   const [notes, setNotes] = useState("");
   const [count, setCount] = useState(10);
+
+  function toggleStyle(id: string) {
+    setStyles((prev) => prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]);
+  }
 
   return (
     <div className="space-y-4">
@@ -111,11 +115,11 @@ function CharNameForm({ genre, onGenerate }: {
         </div>
       </div>
       <div>
-        <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1.5">风格</label>
+        <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1.5">风格（可多选）</label>
         <div className="flex flex-wrap gap-2">
           {CHAR_STYLES.map((s) => (
-            <button key={s.id} onClick={() => setStyle(s.id)}
-              className={`px-3 py-1 text-xs rounded-lg border transition-colors ${style === s.id ? "border-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300" : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300"}`}>
+            <button key={s.id} onClick={() => toggleStyle(s.id)}
+              className={`px-3 py-1 text-xs rounded-lg border transition-colors ${styles.includes(s.id) ? "border-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300" : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300"}`}>
               {s.label}
             </button>
           ))}
@@ -128,7 +132,7 @@ function CharNameForm({ genre, onGenerate }: {
           className="w-full text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 outline-none focus:border-indigo-300" />
       </div>
       <CountAndButton count={count} setCount={setCount}
-        onGenerate={() => onGenerate(buildCharPrompt(genre, gender, style, notes, count))} />
+        onGenerate={() => onGenerate(buildCharPrompt(genre, gender, styles, notes, count))} />
     </div>
   );
 }
@@ -140,9 +144,13 @@ function PlaceNameForm({ genre, onGenerate }: {
   onGenerate: (prompt: string) => void;
 }) {
   const [placeType, setPlaceType] = useState("city");
-  const [style, setStyle] = useState("grand");
+  const [styles, setStyles] = useState<string[]>(["grand"]);
   const [notes, setNotes] = useState("");
   const [count, setCount] = useState(10);
+
+  function toggleStyle(id: string) {
+    setStyles((prev) => prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]);
+  }
 
   return (
     <div className="space-y-4">
@@ -158,11 +166,11 @@ function PlaceNameForm({ genre, onGenerate }: {
         </div>
       </div>
       <div>
-        <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1.5">风格</label>
+        <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1.5">风格（可多选）</label>
         <div className="flex flex-wrap gap-2">
           {PLACE_STYLES.map((s) => (
-            <button key={s.id} onClick={() => setStyle(s.id)}
-              className={`px-3 py-1 text-xs rounded-lg border transition-colors ${style === s.id ? "border-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300" : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300"}`}>
+            <button key={s.id} onClick={() => toggleStyle(s.id)}
+              className={`px-3 py-1 text-xs rounded-lg border transition-colors ${styles.includes(s.id) ? "border-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300" : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300"}`}>
               {s.label}
             </button>
           ))}
@@ -175,7 +183,7 @@ function PlaceNameForm({ genre, onGenerate }: {
           className="w-full text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 outline-none focus:border-indigo-300" />
       </div>
       <CountAndButton count={count} setCount={setCount}
-        onGenerate={() => onGenerate(buildPlacePrompt(genre, placeType, style, notes, count))} />
+        onGenerate={() => onGenerate(buildPlacePrompt(genre, placeType, styles, notes, count))} />
     </div>
   );
 }
