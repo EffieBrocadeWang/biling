@@ -55,7 +55,7 @@ interface SettingsStore {
 }
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
-  activeModelId: "qwen2.5:14b",
+  activeModelId: "deepseek-chat",
   providerKeys: [],
   writingRules: "",
   dailyGoal: 3000,
@@ -74,7 +74,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       "SELECT key, value FROM settings"
     );
     const keys: ProviderKey[] = [];
-    let activeModelId = "qwen2.5:14b";
+    let activeModelId = "deepseek-chat";
     let writingRules = "";
     let dailyGoal = 3000;
     let appearance = { ...DEFAULT_APPEARANCE };

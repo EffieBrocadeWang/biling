@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useSettingsStore, type ThemeMode } from "../../store/settingsStore";
 import { AI_MODELS, type AIProvider } from "../../lib/ai";
 
@@ -43,9 +43,20 @@ export function SettingsModal({ onClose }: Props) {
   const [goalDraft, setGoalDraft] = useState(String(dailyGoal));
   const [remoteUrlDraft, setRemoteUrlDraft] = useState(remoteUrl);
   const [testStatus, setTestStatus] = useState<"idle" | "testing" | "ok" | "fail">("idle");
+  const [ollamaAvailable, setOllamaAvailable] = useState(false);
+  const probed = useRef(false);
 
   useEffect(() => {
     if (!loaded) load();
+  }, []);
+
+  // Probe Ollama once when modal opens
+  useEffect(() => {
+    if (probed.current) return;
+    probed.current = true;
+    fetch("http://localhost:11434/api/tags", { signal: AbortSignal.timeout(2000) })
+      .then((r) => setOllamaAvailable(r.ok))
+      .catch(() => setOllamaAvailable(false));
   }, []);
 
   useEffect(() => {
@@ -69,9 +80,12 @@ export function SettingsModal({ onClose }: Props) {
   async function testRemoteConnection() {
     const url = remoteUrlDraft.trim().replace(/\/$/, "");
     if (!url) return;
+    // Auto-save URL and token before testing
+    await setRemoteUrl(url);
+    const token = keyDraft["remote"] ?? "";
+    await setProviderKey("remote", token);
     setTestStatus("testing");
     try {
-      const token = keyDraft["remote"] ?? "";
       const res = await fetch(`${url}/v1/models`, {
         headers: {
           "ngrok-skip-browser-warning": "true",
@@ -83,6 +97,13 @@ export function SettingsModal({ onClose }: Props) {
     } catch {
       setTestStatus("fail");
     }
+  }
+
+  // Only show models where the provider is configured/available
+  function isProviderAvailable(provider: AIProvider): boolean {
+    if (provider === "ollama") return ollamaAvailable;
+    if (provider === "remote") return !!remoteUrl.trim();
+    return providerKeys.some((p) => p.provider === provider && p.key.trim());
   }
 
   const modelsForProvider = (provider: AIProvider) =>
@@ -134,9 +155,9 @@ export function SettingsModal({ onClose }: Props) {
                 <select
                   value={activeModelId}
                   onChange={(e) => setActiveModel(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
-                  {PROVIDERS.map((p) => (
+                  {PROVIDERS.filter((p) => isProviderAvailable(p.id)).map((p) => (
                     <optgroup key={p.id} label={p.label}>
                       {modelsForProvider(p.id).map((m) => (
                         <option key={m.id} value={m.id}>{m.label}</option>
@@ -144,6 +165,9 @@ export function SettingsModal({ onClose }: Props) {
                     </optgroup>
                   ))}
                 </select>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                  仅显示已配置的模型。配置 API 密钥或代理后自动出现。
+                </p>
               </div>
 
               <div>

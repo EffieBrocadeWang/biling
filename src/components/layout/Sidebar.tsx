@@ -28,7 +28,6 @@ interface ChapterItemProps {
   isRenaming: boolean;
   renameValue: string;
   onSelect: () => void;
-  onStartRename: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onRenameChange: (v: string) => void;
   onRenameCommit: () => void;
@@ -42,7 +41,6 @@ function ChapterItem({
   isRenaming,
   renameValue,
   onSelect,
-  onStartRename,
   onContextMenu,
   onRenameChange,
   onRenameCommit,
@@ -114,15 +112,9 @@ function ChapterItem({
             {globalIndex}
           </span>
           {chapter.title ? (
-            <span
-              className="text-sm truncate flex-1 cursor-text"
-              onClick={(e) => { e.stopPropagation(); onStartRename(); }}
-            >{chapter.title}</span>
+            <span className="text-sm truncate flex-1">{chapter.title}</span>
           ) : (
-            <span
-              className="text-sm truncate flex-1 text-gray-400 dark:text-gray-500 cursor-text"
-              onClick={(e) => { e.stopPropagation(); onStartRename(); }}
-            >
+            <span className="text-sm truncate flex-1 text-gray-400 dark:text-gray-500">
               第{globalIndex}章
             </span>
           )}
@@ -610,7 +602,6 @@ export function Sidebar() {
                         openChapterTab(chapter.id, title);
                         setActiveChapter(chapter.id);
                       }}
-                      onStartRename={() => startRenameChapter(chapter.id, chapter.title)}
                       onContextMenu={(e) => handleContextMenu(e, "chapter", chapter.id)}
                       onRenameChange={setRenameValue}
                       onRenameCommit={async () => {

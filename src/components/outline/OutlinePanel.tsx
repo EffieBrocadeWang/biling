@@ -77,6 +77,7 @@ function NodeRow({ node, projectId, siblings, idx }: NodeRowProps) {
 
   async function commitContent() {
     await updateNode(node.id, { content });
+    setShowDetail(false);
   }
 
   async function addChild() {
@@ -119,7 +120,7 @@ function NodeRow({ node, projectId, siblings, idx }: NodeRowProps) {
                   if (e.key === "Enter") { e.preventDefault(); commitTitle(); }
                   if (e.key === "Escape") { setTitle(node.title); setEditingTitle(false); }
                 }}
-                className="w-full text-sm bg-white dark:bg-gray-900 border border-indigo-300 rounded px-1 py-0.5 outline-none"
+                className="w-full text-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 border border-indigo-300 rounded px-1 py-0.5 outline-none"
                 placeholder={`${LEVEL_LABELS[node.level]}标题…`}
                 autoFocus
               />
@@ -159,7 +160,7 @@ function NodeRow({ node, projectId, siblings, idx }: NodeRowProps) {
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   rows={3}
-                  className="w-full text-xs bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded px-2 py-1.5 resize-none outline-none focus:border-indigo-300 leading-relaxed"
+                  className="w-full text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded px-2 py-1.5 resize-none outline-none focus:border-indigo-300 leading-relaxed"
                   placeholder="要点描述（可选）"
                 />
                 <button
@@ -172,7 +173,7 @@ function NodeRow({ node, projectId, siblings, idx }: NodeRowProps) {
                     <select
                       value={node.linked_chapter_id ?? ""}
                       onChange={(e) => updateNode(node.id, { linked_chapter_id: e.target.value || null })}
-                      className="flex-1 text-xs border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5 bg-white dark:bg-gray-900 outline-none"
+                      className="flex-1 text-xs border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 outline-none"
                     >
                       <option value="">-- 不关联 --</option>
                       {chapters.map((c) => (
@@ -521,9 +522,9 @@ ${outlineText}
       {/* Legend */}
       {!showChat && nodes.filter((n) => n.book_id === projectId).length > 0 && (
         <div className="shrink-0 border-t border-gray-200 dark:border-gray-700 px-4 py-2 bg-white dark:bg-gray-900 flex gap-4 text-xs text-gray-400 dark:text-gray-500">
-          <span className="text-indigo-600">■ 全书大纲</span>
-          <span className="text-blue-500">■ 卷纲</span>
-          <span className="text-gray-500 dark:text-gray-400 dark:text-gray-500">■ 章纲</span>
+          <span className="text-slate-600 dark:text-slate-400">■ 全书大纲</span>
+          <span className="text-slate-500 dark:text-slate-400">■ 卷纲</span>
+          <span className="text-gray-400 dark:text-gray-500">■ 章纲</span>
           <span className="ml-auto">点击标题展开详情 · ✎ 编辑标题</span>
         </div>
       )}

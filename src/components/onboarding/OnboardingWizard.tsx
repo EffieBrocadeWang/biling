@@ -35,11 +35,14 @@ function StepDots({ current }: { current: number }) {
 }
 
 export function OnboardingWizard({ onComplete }: Props) {
-  const { setProviderKey, setActiveModel, completeOnboarding } = useSettingsStore();
+  const { setProviderKey, setActiveModel, setRemoteUrl, completeOnboarding } = useSettingsStore();
   const [step, setStep] = useState(0);
   const [selectedGenre, setSelectedGenre] = useState<string>("");
   const [apiKey, setApiKey] = useState("");
   const [testStatus, setTestStatus] = useState<"idle" | "testing" | "ok" | "fail">("idle");
+  const [proxyUrl, setProxyUrl] = useState("");
+  const [proxyToken, setProxyToken] = useState("");
+  const [proxyTestStatus, setProxyTestStatus] = useState<"idle" | "testing" | "ok" | "fail">("idle");
 
   async function finish() {
     await completeOnboarding();
@@ -50,8 +53,30 @@ export function OnboardingWizard({ onComplete }: Props) {
     if (apiKey.trim()) {
       await setProviderKey("deepseek", apiKey.trim());
       await setActiveModel("deepseek-chat");
+    } else if (proxyUrl.trim()) {
+      await setRemoteUrl(proxyUrl.trim());
+      if (proxyToken.trim()) await setProviderKey("remote", proxyToken.trim());
+      await setActiveModel("remote-qwen2.5:14b");
     }
     setStep(2);
+  }
+
+  async function testProxyConnection() {
+    const url = proxyUrl.trim().replace(/\/$/, "");
+    if (!url) return;
+    setProxyTestStatus("testing");
+    try {
+      const res = await fetch(`${url}/v1/models`, {
+        headers: {
+          "ngrok-skip-browser-warning": "true",
+          ...(proxyToken.trim() ? { Authorization: `Bearer ${proxyToken.trim()}` } : {}),
+        },
+        signal: AbortSignal.timeout(5000),
+      });
+      setProxyTestStatus(res.ok ? "ok" : "fail");
+    } catch {
+      setProxyTestStatus("fail");
+    }
   }
 
   async function testDeepSeek() {
@@ -160,12 +185,36 @@ export function OnboardingWizard({ onComplete }: Props) {
         {/* Option B: Remote Proxy */}
         <div className="border border-gray-200 dark:border-gray-700 rounded-xl p-4 mb-3">
           <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-1">方式二：连接远程代理（测试用）</p>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">
-            如果你收到了测试邀请，填写下方的服务器地址和访问令牌即可免费使用。
+          <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">
+            如果你收到了测试邀请，填写下方地址和令牌即可免费使用。
           </p>
-          <p className="text-xs text-gray-400 dark:text-gray-500">
-            地址和令牌请在「设置 → AI 模型 → 远程 LLM 代理」中配置。
-          </p>
+          <div className="space-y-2">
+            <input
+              type="text"
+              value={proxyUrl}
+              onChange={(e) => { setProxyUrl(e.target.value); setProxyTestStatus("idle"); }}
+              placeholder="https://xxxx.ngrok-free.app"
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-sm font-mono bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+            <input
+              type="password"
+              value={proxyToken}
+              onChange={(e) => { setProxyToken(e.target.value); setProxyTestStatus("idle"); }}
+              placeholder="访问令牌（如 biling-test-2026）"
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-sm font-mono bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+            <div className="flex items-center gap-2">
+              <button
+                onClick={testProxyConnection}
+                disabled={!proxyUrl.trim() || proxyTestStatus === "testing"}
+                className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg disabled:opacity-40"
+              >
+                {proxyTestStatus === "testing" ? "检测中…" : "测试连接"}
+              </button>
+              {proxyTestStatus === "ok" && <span className="text-xs text-green-600 dark:text-green-400">✓ 连接成功</span>}
+              {proxyTestStatus === "fail" && <span className="text-xs text-red-500">✗ 连接失败</span>}
+            </div>
+          </div>
         </div>
 
         {/* Option C: Skip */}
@@ -290,11 +339,11 @@ export function OnboardingWizard({ onComplete }: Props) {
 
       <div className="space-y-3 mb-8">
         {[
-          { icon: "✍️", title: "创建第一章正文", desc: "两种方式：侧边栏章节列表点「+新建章节」；或在大纲列表中找到章纲，点「+」一键创建并关联" },
+          { icon: "✍️", title: "创建第一章正文", desc: "侧边栏左下角「+ 新建卷」→ 卷标题旁「+」新建章节" },
+          { icon: "📋", title: "大纲关联章节（重要）", desc: "在大纲里添加「章纲」后，点章纲旁的「+」自动新建对应正文章节并关联，这样大纲和正文就同步了" },
           { icon: "📚", title: "添加角色到世界百科", desc: "AI 就不会搞混角色关系" },
-          { icon: "📋", title: "用大纲规划剧情", desc: "AI 可以帮你展开大纲要点" },
           { icon: "🔗", title: "标记伏笔", desc: "笔灵会提醒你哪些伏笔还没回收" },
-          { icon: "📜", title: "设置写作铁律", desc: "AI 每次写作都会遵守你的规则" },
+          { icon: "📜", title: "设置写作铁律", desc: "在「项目文档」中写规则，AI 每次续写都会遵守" },
         ].map((item) => (
           <div key={item.title} className="flex items-start gap-3">
             <span className="text-lg">{item.icon}</span>

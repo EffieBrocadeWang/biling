@@ -27,7 +27,6 @@ export const AI_MODELS: AIModel[] = [
   { provider: "claude",   id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5",   baseUrl: "https://api.anthropic.com",         contextWindow: 200000 },
   { provider: "claude",   id: "claude-sonnet-4-6",       label: "Claude Sonnet 4.6",    baseUrl: "https://api.anthropic.com",         contextWindow: 200000 },
   // Remote proxy (user-configured URL)
-  { provider: "remote",   id: "remote-default",          label: "远程代理（默认）",         baseUrl: "remote",                             contextWindow: 32000  },
   { provider: "remote",   id: "remote-qwen2.5:14b",      label: "远程代理 Qwen 2.5 14B",  baseUrl: "remote",                             contextWindow: 32000  },
   { provider: "remote",   id: "remote-qwen2.5:7b",       label: "远程代理 Qwen 2.5 7B",   baseUrl: "remote",                             contextWindow: 32000  },
 ];
