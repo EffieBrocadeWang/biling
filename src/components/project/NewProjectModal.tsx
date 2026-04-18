@@ -2,11 +2,17 @@ import { useState } from "react";
 import { useProjectStore } from "../../store/projectStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { getPresetForGenre } from "../../lib/genrePresets";
+import { BUILTIN_PACKS } from "../../lib/builtinPacks";
 
-const GENRES = [
+// Base genres always shown; pack genres are appended if not already present
+const BASE_GENRES = [
   "玄幻", "仙侠", "都市", "穿越", "科幻", "历史", "悬疑", "武侠",
-  "言情", "系统文", "末世", "奇幻", "其他"
+  "言情", "系统文", "末世", "奇幻",
 ];
+const _packGenres = [...new Set(
+  BUILTIN_PACKS.map((p) => p.manifest.genre).filter((g): g is string => !!g)
+)].filter((g) => !BASE_GENRES.includes(g));
+const GENRES = [...BASE_GENRES, ..._packGenres, "其他"];
 
 interface Props {
   onClose: () => void;
@@ -57,7 +63,7 @@ export function NewProjectModal({ onClose, onCreated }: Props) {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="请输入书名"
-              className="w-full border border-gray-300 dark:border-gray-600 dark:border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               autoFocus
             />
           </div>
@@ -67,7 +73,7 @@ export function NewProjectModal({ onClose, onCreated }: Props) {
             <select
               value={genre}
               onChange={(e) => setGenre(e.target.value)}
-              className="w-full border border-gray-300 dark:border-gray-600 dark:border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               {GENRES.map((g) => (
                 <option key={g} value={g}>{g}</option>
@@ -82,7 +88,7 @@ export function NewProjectModal({ onClose, onCreated }: Props) {
               onChange={(e) => setSynopsis(e.target.value)}
               placeholder="一句话介绍你的故事（可选）"
               rows={3}
-              className="w-full border border-gray-300 dark:border-gray-600 dark:border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
             />
           </div>
 

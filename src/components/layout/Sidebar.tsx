@@ -17,7 +17,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { useEditorStore } from "../../store/editorStore";
 import { useOutlineStore } from "../../store/outlineStore";
 import { useTabStore } from "../../store/tabStore";
-import type { Chapter, OutlineNode } from "../../types";
+import type { Chapter, OutlineNode, Volume } from "../../types";
 
 // ── Sortable chapter item ──────────────────────────────────────────────────
 
@@ -131,14 +131,18 @@ function ChapterItem({
 
 // ── Sidebar outline navigator ──────────────────────────────────────────────
 
-function OutlineNode({ node, activeChapterId, onJump }: {
+function OutlineNode({ node, activeChapterId, onJump, onCreateLinked }: {
   node: OutlineNode;
   activeChapterId: string | null;
-  onJump: (chapterId: string) => void;
+  onJump: (nodeId: string) => void;
+  onCreateLinked: (node: OutlineNode) => void;
 }) {
   const [open, setOpen] = useState(true);
+  const [creating, setCreating] = useState(false);
   const children = (node.children ?? []).slice().sort((a, b) => a.sort_order - b.sort_order);
-  const isLinked = node.level === 3 && !!node.linked_chapter_id;
+  const isLeaf = node.level === 3;
+  const isLinked = isLeaf && !!node.linked_chapter_id;
+  const isUnlinkedLeaf = isLeaf && !node.linked_chapter_id;
   const isActive = isLinked && node.linked_chapter_id === activeChapterId;
 
   const INDENT = ["", "ml-0", "ml-3", "ml-6"] as const;
@@ -152,10 +156,16 @@ function OutlineNode({ node, activeChapterId, onJump }: {
     <div className={INDENT[node.level]}>
       <div
         className={`flex items-center gap-1 px-1 py-0.5 rounded group ${
-          isActive ? "bg-indigo-100 dark:bg-indigo-900/40" : isLinked ? "hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer" : ""
+          isActive
+            ? "bg-indigo-100 dark:bg-indigo-900/40"
+            : isLeaf
+            ? "hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+            : children.length > 0
+            ? "cursor-pointer"
+            : ""
         }`}
         onClick={() => {
-          if (isLinked && node.linked_chapter_id) onJump(node.linked_chapter_id);
+          if (isLeaf) onJump(node.id);          // 章纲: always open outline node view
           else if (children.length > 0) setOpen((v) => !v);
         }}
       >
@@ -174,14 +184,37 @@ function OutlineNode({ node, activeChapterId, onJump }: {
         <span className={`truncate flex-1 leading-5 ${TITLE_COLOR} ${!node.title ? "italic opacity-50" : ""}`}>
           {node.title || "未命名"}
         </span>
-        {isLinked && !isActive && (
-          <span className="opacity-0 group-hover:opacity-100 text-xs text-indigo-400 shrink-0">→</span>
+        {/* Unlinked 章纲: show "+" button to create & link a chapter */}
+        {isUnlinkedLeaf && (
+          <button
+            title="新建并关联章节"
+            disabled={creating}
+            onClick={async (e) => {
+              e.stopPropagation();
+              setCreating(true);
+              await onCreateLinked(node);
+              setCreating(false);
+            }}
+            className="opacity-0 group-hover:opacity-100 text-xs text-indigo-400 hover:text-indigo-600 shrink-0 w-4 text-center leading-none"
+          >
+            {creating ? "…" : "+"}
+          </button>
+        )}
+        {/* Linked 章纲: show doc indicator */}
+        {isLinked && (
+          <span className="opacity-0 group-hover:opacity-100 text-xs text-indigo-400 shrink-0" title="已关联正文">📄</span>
         )}
       </div>
       {open && children.length > 0 && (
         <div>
           {children.map((child) => (
-            <OutlineNode key={child.id} node={child} activeChapterId={activeChapterId} onJump={onJump} />
+            <OutlineNode
+              key={child.id}
+              node={child}
+              activeChapterId={activeChapterId}
+              onJump={onJump}
+              onCreateLinked={onCreateLinked}
+            />
           ))}
         </div>
       )}
@@ -190,9 +223,9 @@ function OutlineNode({ node, activeChapterId, onJump }: {
 }
 
 function SidebarOutline({ projectId }: { projectId: string }) {
-  const { tree, nodes } = useOutlineStore();
-  const { activeChapterId, setActiveChapter, chapters } = useEditorStore();
-  const { openChapterTab } = useTabStore();
+  const { tree, nodes, updateNode } = useOutlineStore();
+  const { activeChapterId, volumes, createChapter } = useEditorStore();
+  const { openOutlineNodeTab } = useTabStore();
 
   const roots = tree
     .filter((n) => n.book_id === projectId && n.parent_id == null)
@@ -213,11 +246,35 @@ function SidebarOutline({ projectId }: { projectId: string }) {
     );
   }
 
-  function handleJump(chapterId: string) {
-    const ch = chapters.find(c => c.id === chapterId);
-    const title = ch?.title || "章节";
-    openChapterTab(chapterId, title);
-    setActiveChapter(chapterId);
+  function handleJump(nodeId: string) {
+    // For 章纲 clicks: open the outline node planning view, not the chapter directly
+    const node = nodes.find(n => n.id === nodeId);
+    if (node) openOutlineNodeTab(node.id, node.title || "章纲");
+  }
+
+  async function handleCreateLinked(node: OutlineNode) {
+    const sortedVols = [...volumes].sort((a, b) => a.sort_order - b.sort_order);
+    if (!sortedVols.length) return;
+
+    // Find which volume corresponds to this node's level-2 ancestor (卷纲)
+    // by matching the 卷纲's position among all level-2 nodes → volume at same index
+    let targetVol = sortedVols[0];
+    if (node.parent_id) {
+      const allNodes = nodes.filter((n) => n.book_id === projectId);
+      const level2Parent = allNodes.find((n) => n.id === node.parent_id && n.level === 2);
+      if (level2Parent) {
+        const allLevel2 = allNodes
+          .filter((n) => n.level === 2)
+          .sort((a, b) => a.sort_order - b.sort_order);
+        const idx = allLevel2.findIndex((n) => n.id === level2Parent.id);
+        if (idx >= 0 && idx < sortedVols.length) targetVol = sortedVols[idx];
+      }
+    }
+
+    const title = node.title || "新章节";
+    const chapterId = await createChapter(targetVol.id, title);
+    await updateNode(node.id, { linked_chapter_id: chapterId });
+    openOutlineNodeTab(node.id, node.title || "章纲");
   }
 
   return (
@@ -228,10 +285,80 @@ function SidebarOutline({ projectId }: { projectId: string }) {
           node={node}
           activeChapterId={activeChapterId}
           onJump={handleJump}
+          onCreateLinked={handleCreateLinked}
         />
       ))}
     </div>
   );
+}
+
+// ── Sort-by-outline helpers ────────────────────────────────────────────────
+
+interface SortItem { id: string; volumeId: string; sortOrder: number; }
+
+function computeOutlineSort(
+  nodes: OutlineNode[],
+  volumes: Volume[],
+  chapters: Chapter[],
+  projectId: string
+): SortItem[] {
+  const allNodes = nodes.filter((n) => n.book_id === projectId);
+  const sortedVols = [...volumes].sort((a, b) => a.sort_order - b.sort_order);
+  if (!sortedVols.length) return [];
+
+  // Walk outline tree in order: level1 → level2 (卷纲) → level3 (章纲)
+  // Each level-2 maps to a volume by its global index among all level-2 nodes
+  const linkedOrder: { chapterId: string; volId: string }[] = [];
+  const linkedSet = new Set<string>();
+
+  const level1 = allNodes.filter((n) => n.level === 1 && n.parent_id == null)
+    .sort((a, b) => a.sort_order - b.sort_order);
+
+  let vol2Idx = 0;
+  for (const l1 of level1) {
+    const level2 = allNodes.filter((n) => n.parent_id === l1.id && n.level === 2)
+      .sort((a, b) => a.sort_order - b.sort_order);
+    for (const l2 of level2) {
+      const targetVolId = (sortedVols[vol2Idx] ?? sortedVols[sortedVols.length - 1]).id;
+      const level3 = allNodes.filter((n) => n.parent_id === l2.id && n.level === 3)
+        .sort((a, b) => a.sort_order - b.sort_order);
+      for (const l3 of level3) {
+        if (l3.linked_chapter_id && chapters.some((c) => c.id === l3.linked_chapter_id)) {
+          linkedOrder.push({ chapterId: l3.linked_chapter_id, volId: targetVolId });
+          linkedSet.add(l3.linked_chapter_id);
+        }
+      }
+      vol2Idx++;
+    }
+  }
+
+  // Per-volume: linked chapters first (in outline order), then unlinked at end
+  const result: SortItem[] = [];
+  const volLinked = new Map<string, string[]>();
+  for (const { chapterId, volId } of linkedOrder) {
+    if (!volLinked.has(volId)) volLinked.set(volId, []);
+    volLinked.get(volId)!.push(chapterId);
+  }
+
+  for (const vol of sortedVols) {
+    const linked = volLinked.get(vol.id) ?? [];
+    const unlinked = chapters
+      .filter((c) => c.volume_id === vol.id && !linkedSet.has(c.id))
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((c) => c.id);
+    [...linked, ...unlinked].forEach((id, idx) => {
+      result.push({ id, volumeId: vol.id, sortOrder: idx });
+    });
+  }
+
+  // Safety: any chapters not covered (shouldn't happen)
+  for (const ch of chapters) {
+    if (!result.find((r) => r.id === ch.id)) {
+      result.push({ id: ch.id, volumeId: ch.volume_id, sortOrder: 999 });
+    }
+  }
+
+  return result;
 }
 
 // ── Main Sidebar ───────────────────────────────────────────────────────────
@@ -241,8 +368,10 @@ export function Sidebar() {
     projectId, volumes, chapters, activeChapterId,
     createChapter, createVolume, deleteChapter,
     renameChapter, renameVolume, setActiveChapter,
-    reorderChapters, setChapterStatus,
+    reorderChapters, setChapterStatus, moveChapterToVolume,
+    applyChapterSortOrder,
   } = useEditorStore();
+  const { nodes } = useOutlineStore();
   const { openChapterTab } = useTabStore();
 
   const [sidebarMode, setSidebarMode] = useState<"chapters" | "outline">("chapters");
@@ -255,6 +384,39 @@ export function Sidebar() {
     x: number;
     y: number;
   } | null>(null);
+
+  // Sort-by-outline dialog state
+  type SortPhase = "confirm" | "done";
+  const [sortPhase, setSortPhase] = useState<SortPhase | null>(null);
+  const [sortUnlinked, setSortUnlinked] = useState<string[]>([]);
+  const [sortPending, setSortPending] = useState<SortItem[]>([]);
+  const [sortSnapshot, setSortSnapshot] = useState<SortItem[] | null>(null);
+
+  function handleSortByOutline() {
+    if (!projectId) return;
+    const pending = computeOutlineSort(nodes, volumes, chapters, projectId);
+    const unlinkedTitles = chapters
+      .filter((c) => !nodes.some((n) => n.linked_chapter_id === c.id))
+      .map((c) => c.title || "未命名章节");
+    setSortPending(pending);
+    setSortUnlinked(unlinkedTitles);
+    setSortPhase("confirm");
+  }
+
+  async function confirmSort() {
+    const snapshot: SortItem[] = chapters.map((c) => ({
+      id: c.id, volumeId: c.volume_id, sortOrder: c.sort_order,
+    }));
+    setSortSnapshot(snapshot);
+    await applyChapterSortOrder(sortPending);
+    setSortPhase("done");
+  }
+
+  async function undoSort() {
+    if (sortSnapshot) await applyChapterSortOrder(sortSnapshot);
+    setSortPhase(null);
+    setSortSnapshot(null);
+  }
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -278,14 +440,30 @@ export function Sidebar() {
     return map;
   })();
 
-  function handleDragEnd(event: DragEndEvent, volumeId: string) {
+  function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const volChapters = chaptersForVolume(volumeId);
-    const oldIndex = volChapters.findIndex((c) => c.id === active.id);
-    const newIndex = volChapters.findIndex((c) => c.id === over.id);
-    const reordered = arrayMove(volChapters, oldIndex, newIndex);
-    reorderChapters(volumeId, reordered.map((c) => c.id));
+
+    const activeChapter = chapters.find(c => c.id === active.id);
+    const overChapter = chapters.find(c => c.id === over.id);
+    if (!activeChapter || !overChapter) return;
+
+    const sourceVolumeId = activeChapter.volume_id;
+    const targetVolumeId = overChapter.volume_id;
+
+    if (sourceVolumeId === targetVolumeId) {
+      // Same volume: reorder within volume
+      const volChapters = chaptersForVolume(sourceVolumeId);
+      const oldIndex = volChapters.findIndex(c => c.id === active.id);
+      const newIndex = volChapters.findIndex(c => c.id === over.id);
+      const reordered = arrayMove(volChapters, oldIndex, newIndex);
+      reorderChapters(sourceVolumeId, reordered.map(c => c.id));
+    } else {
+      // Cross-volume: move chapter to target volume, insert before the over chapter
+      const tgtChapters = chaptersForVolume(targetVolumeId);
+      const insertAt = tgtChapters.findIndex(c => c.id === over.id);
+      moveChapterToVolume(activeChapter.id, targetVolumeId, insertAt >= 0 ? insertAt : tgtChapters.length);
+    }
   }
 
   function startRenameChapter(id: string, title: string) {
@@ -358,55 +536,55 @@ export function Sidebar() {
             </button>
           </div>
         )}
-        {volumes.map((volume) => {
-          const volChapters = chaptersForVolume(volume.id);
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          {volumes.map((volume) => {
+            const volChapters = chaptersForVolume(volume.id);
 
-          return (
-            <div key={volume.id}>
-              {/* Volume header */}
-              <div
-                className="flex items-center justify-between px-3 py-1.5 group"
-                onContextMenu={(e) => handleContextMenu(e, "volume", volume.id)}
-              >
-                {renamingVolume === volume.id ? (
-                  <input
-                    autoFocus
-                    value={renameValue}
-                    onChange={(e) => setRenameValue(e.target.value)}
-                    onBlur={async () => {
-                      if (renameValue.trim()) await renameVolume(volume.id, renameValue.trim());
-                      setRenamingVolume(null);
-                    }}
-                    onKeyDown={async (e) => {
-                      if (e.key === "Enter") {
+            return (
+              <div key={volume.id}>
+                {/* Volume header */}
+                <div
+                  className="flex items-center justify-between px-3 py-1.5 group"
+                  onContextMenu={(e) => handleContextMenu(e, "volume", volume.id)}
+                >
+                  {renamingVolume === volume.id ? (
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onBlur={async () => {
                         if (renameValue.trim()) await renameVolume(volume.id, renameValue.trim());
                         setRenamingVolume(null);
-                      } else if (e.key === "Escape") {
-                        setRenamingVolume(null);
-                      }
-                    }}
-                    className="text-xs font-semibold bg-white dark:bg-gray-900 border border-indigo-400 rounded px-1 w-full outline-none"
-                  />
-                ) : (
-                  <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 dark:text-gray-500 uppercase tracking-wide">
-                    {volume.title}
-                  </span>
-                )}
-                <button
-                  onClick={() => createChapter(volume.id)}
-                  className="opacity-0 group-hover:opacity-100 text-gray-400 dark:text-gray-500 hover:text-indigo-600 text-lg leading-none ml-1"
-                  title="新建章节"
-                >
-                  +
-                </button>
-              </div>
+                      }}
+                      onKeyDown={async (e) => {
+                        if (e.key === "Enter") {
+                          if (renameValue.trim()) await renameVolume(volume.id, renameValue.trim());
+                          setRenamingVolume(null);
+                        } else if (e.key === "Escape") {
+                          setRenamingVolume(null);
+                        }
+                      }}
+                      className="text-xs font-semibold bg-white dark:bg-gray-900 border border-indigo-400 rounded px-1 w-full outline-none"
+                    />
+                  ) : (
+                    <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 dark:text-gray-500 uppercase tracking-wide">
+                      {volume.title}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => createChapter(volume.id)}
+                    className="opacity-0 group-hover:opacity-100 text-gray-400 dark:text-gray-500 hover:text-indigo-600 text-lg leading-none ml-1"
+                    title="新建章节"
+                  >
+                    +
+                  </button>
+                </div>
 
-              {/* Sortable chapters */}
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={(e) => handleDragEnd(e, volume.id)}
-              >
+                {/* Sortable chapters */}
                 <SortableContext
                   items={volChapters.map((c) => c.id)}
                   strategy={verticalListSortingStrategy}
@@ -434,28 +612,94 @@ export function Sidebar() {
                     />
                   ))}
                 </SortableContext>
-              </DndContext>
 
-              {volChapters.length === 0 && (
-                <div
-                  onClick={() => createChapter(volume.id)}
-                  className="text-xs text-gray-400 dark:text-gray-500 px-5 py-2 cursor-pointer hover:text-indigo-500"
-                >
-                  + 新建章节
-                </div>
-              )}
-            </div>
-          );
-        })}
+                {volChapters.length === 0 && (
+                  <div
+                    onClick={() => createChapter(volume.id)}
+                    className="text-xs text-gray-400 dark:text-gray-500 px-5 py-2 cursor-pointer hover:text-indigo-500"
+                  >
+                    + 新建章节
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </DndContext>
       </div>
-      <div className="border-t border-gray-200 dark:border-gray-700 p-2 shrink-0">
+      <div className="border-t border-gray-200 dark:border-gray-700 p-2 shrink-0 space-y-1">
         <button
           onClick={() => projectId && createVolume(projectId)}
-          className="w-full text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 hover:text-indigo-600 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+          className="w-full text-xs text-gray-500 dark:text-gray-400 hover:text-indigo-600 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
         >
           + 新建卷
         </button>
+        <button
+          onClick={handleSortByOutline}
+          disabled={volumes.length === 0}
+          className="w-full text-xs text-gray-500 dark:text-gray-400 hover:text-indigo-600 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors disabled:opacity-40"
+          title="按大纲顺序重排所有章节"
+        >
+          ↕ 按大纲排序
+        </button>
       </div>
+
+      {/* Confirm sort dialog */}
+      {sortPhase === "confirm" && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-sm p-6">
+            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3">按大纲排序</h3>
+            {sortUnlinked.length > 0 ? (
+              <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed mb-4">
+                {sortUnlinked.map((t) => `【${t}】`).join("")}
+                {" 没有和大纲关联，排序后会排到最后，不是按照当前次序。你可以先关联再排序。"}
+                <br /><br />是否现在排序？
+              </p>
+            ) : (
+              <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed mb-4">
+                自动排序会影响当前章节顺序，此动作可以撤销，是否现在排序？
+              </p>
+            )}
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setSortPhase(null)}
+                className="px-4 py-1.5 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 rounded"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmSort}
+                className="px-4 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
+              >
+                现在排序
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Done/undo dialog */}
+      {sortPhase === "done" && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-sm p-6">
+            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3">排序已完成</h3>
+            <p className="text-xs text-gray-600 dark:text-gray-400 mb-4">章节已按大纲顺序重新排列。</p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={undoSort}
+                className="px-4 py-1.5 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 rounded border border-gray-200 dark:border-gray-700"
+              >
+                撤销
+              </button>
+              <button
+                onClick={() => { setSortPhase(null); setSortSnapshot(null); }}
+                className="px-4 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
+              >
+                接受
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </>)}
 
       {/* Context menu */}

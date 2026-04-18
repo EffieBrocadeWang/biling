@@ -42,10 +42,11 @@ export const useCodexStore = create<CodexStore>((set) => ({
 
   updateEntry: async (id, fields) => {
     const db = await getDb();
-    const sets = Object.keys(fields)
-      .map((k) => `${k} = ?`)
-      .join(", ");
-    const values = [...Object.values(fields), id];
+    const ALLOWED = new Set(["type", "name", "aliases", "description", "ai_instructions", "tags", "properties", "image_url"]);
+    const safeKeys = Object.keys(fields).filter((k) => ALLOWED.has(k));
+    if (safeKeys.length === 0) return;
+    const sets = safeKeys.map((k) => `${k} = ?`).join(", ");
+    const values = [...safeKeys.map((k) => (fields as Record<string, unknown>)[k]), id];
     await db.execute(
       `UPDATE codex_entities SET ${sets}, updated_at = datetime('now') WHERE id = ?`,
       values

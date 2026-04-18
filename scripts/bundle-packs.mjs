@@ -1,6 +1,7 @@
 /**
- * Reads the 3 built-in writing packs from the plan folder and generates
+ * Reads all writing packs from the plan folder and generates
  * src/lib/builtinPacks.ts with all content embedded as a TypeScript constant.
+ * New packs are picked up automatically — just add a folder with manifest.json.
  *
  * Run: node scripts/bundle-packs.mjs
  */

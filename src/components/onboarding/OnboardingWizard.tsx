@@ -157,28 +157,22 @@ export function OnboardingWizard({ onComplete }: Props) {
           </p>
         </div>
 
-        {/* Option B: Local Ollama */}
+        {/* Option B: Remote Proxy */}
         <div className="border border-gray-200 dark:border-gray-700 rounded-xl p-4 mb-3">
-          <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-1">方式二：本地 Ollama（免费）</p>
+          <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-1">方式二：连接远程代理（测试用）</p>
           <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">
-            本机已安装 Ollama + Qwen 模型，无需 API Key。
+            如果你收到了测试邀请，填写下方的服务器地址和访问令牌即可免费使用。
           </p>
-          <button
-            onClick={async () => {
-              await setActiveModel("qwen2.5:14b");
-              setStep(2);
-            }}
-            className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg"
-          >
-            使用本地 Ollama
-          </button>
+          <p className="text-xs text-gray-400 dark:text-gray-500">
+            地址和令牌请在「设置 → AI 模型 → 远程 LLM 代理」中配置。
+          </p>
         </div>
 
         {/* Option C: Skip */}
         <div className="border border-dashed border-gray-200 dark:border-gray-700 rounded-xl p-3 mb-5">
           <p className="text-xs text-gray-400 dark:text-gray-500">
-            <span className="font-medium text-gray-500 dark:text-gray-400">方式三：先不配 AI</span> —
-            笔灵也能当纯编辑器用，随时在「设置」中添加。
+            <span className="font-medium text-gray-500 dark:text-gray-400">现在跳过也没关系</span> —
+            笔灵也能当纯编辑器用，随时在「设置」中配置 AI。
           </p>
         </div>
 
@@ -296,6 +290,7 @@ export function OnboardingWizard({ onComplete }: Props) {
 
       <div className="space-y-3 mb-8">
         {[
+          { icon: "✍️", title: "创建第一章正文", desc: "两种方式：侧边栏章节列表点「+新建章节」；或在大纲列表中找到章纲，点「+」一键创建并关联" },
           { icon: "📚", title: "添加角色到世界百科", desc: "AI 就不会搞混角色关系" },
           { icon: "📋", title: "用大纲规划剧情", desc: "AI 可以帮你展开大纲要点" },
           { icon: "🔗", title: "标记伏笔", desc: "笔灵会提醒你哪些伏笔还没回收" },

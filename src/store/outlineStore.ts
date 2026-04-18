@@ -78,18 +78,18 @@ export const useOutlineStore = create<OutlineStore>((set, get) => ({
 
   removeNode: async (id) => {
     const db = await getDb();
+    // ON DELETE CASCADE handles children automatically
+    await db.execute(`DELETE FROM outline_nodes WHERE id = ?`, [id]);
+    // Remove node and all descendants from local state
     const all = get().nodes;
-    const toDelete: string[] = [];
+    const deleted = new Set<string>();
     const queue = [id];
     while (queue.length) {
       const cur = queue.shift()!;
-      toDelete.push(cur);
+      deleted.add(cur);
       all.filter((n) => n.parent_id === cur).forEach((n) => queue.push(n.id));
     }
-    for (const nodeId of toDelete) {
-      await db.execute(`DELETE FROM outline_nodes WHERE id = ?`, [nodeId]);
-    }
-    const updated = all.filter((n) => !toDelete.includes(n.id));
+    const updated = all.filter((n) => !deleted.has(n.id));
     set({ nodes: updated, tree: buildTree(updated) });
   },
 

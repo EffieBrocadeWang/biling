@@ -13,7 +13,7 @@ interface EditorStore {
 
   loadProjectData: (projectId: string) => Promise<void>;
   setActiveChapter: (chapterId: string) => Promise<void>;
-  createChapter: (volumeId: string) => Promise<void>;
+  createChapter: (volumeId: string, title?: string) => Promise<string>; // returns new chapter id
   createVolume: (projectId: string) => Promise<void>;
   saveChapter: (chapterId: string, content: string, wordCount: number) => Promise<void>;
   deleteChapter: (chapterId: string) => Promise<void>;
@@ -21,10 +21,12 @@ interface EditorStore {
   renameVolume: (volumeId: string, title: string) => Promise<void>;
   saveSummary: (chapterId: string, summary: string) => Promise<void>;
   reorderChapters: (volumeId: string, orderedIds: string[]) => Promise<void>;
+  moveChapterToVolume: (chapterId: string, targetVolumeId: string, insertAtIndex?: number) => Promise<void>;
   setChapterStatus: (chapterId: string, status: Chapter["status"]) => Promise<void>;
   createSnapshot: (chapterId: string, content: string, wordCount: number) => Promise<void>;
   loadSnapshots: (chapterId: string) => Promise<ChapterSnapshot[]>;
   restoreSnapshot: (chapterId: string, snapshot: ChapterSnapshot) => Promise<void>;
+  applyChapterSortOrder: (items: { id: string; volumeId: string; sortOrder: number }[]) => Promise<void>;
   toggleSidebar: () => void;
   toggleAiPanel: () => void;
 }
@@ -65,7 +67,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     }
   },
 
-  createChapter: async (volumeId) => {
+  createChapter: async (volumeId, title = "") => {
     const db = await getDb();
     const { chapters, projectId } = get();
     const existing = chapters.filter((c) => c.volume_id === volumeId);
@@ -73,7 +75,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const id = generateId();
     await db.execute(
       "INSERT INTO chapters (id, book_id, volume_id, title, content, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
-      [id, projectId, volumeId, "", JSON.stringify({ type: "doc", content: [] }), sortOrder]
+      [id, projectId, volumeId, title, JSON.stringify({ type: "doc", content: [] }), sortOrder]
     );
     const rows = await db.select<Chapter[]>(
       "SELECT * FROM chapters WHERE id = ?",
@@ -83,6 +85,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       set((state) => ({ chapters: [...state.chapters, rows[0]] }));
       get().setActiveChapter(rows[0].id);
     }
+    return id;
   },
 
   createVolume: async (projectId) => {
@@ -249,6 +252,70 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         }),
       };
     });
+  },
+
+  moveChapterToVolume: async (chapterId, targetVolumeId, insertAtIndex) => {
+    const db = await getDb();
+    const { chapters } = get();
+    const chapter = chapters.find(c => c.id === chapterId);
+    if (!chapter || chapter.volume_id === targetVolumeId) return;
+
+    const sourceVolumeId = chapter.volume_id;
+
+    // Compute new source order (without moved chapter)
+    const srcChapters = chapters
+      .filter(c => c.volume_id === sourceVolumeId && c.id !== chapterId)
+      .sort((a, b) => a.sort_order - b.sort_order);
+
+    // Compute new target order (with moved chapter inserted)
+    const tgtChapters = chapters
+      .filter(c => c.volume_id === targetVolumeId)
+      .sort((a, b) => a.sort_order - b.sort_order);
+    const insertAt = insertAtIndex !== undefined
+      ? Math.max(0, Math.min(insertAtIndex, tgtChapters.length))
+      : tgtChapters.length;
+    const newTgtChapters = [
+      ...tgtChapters.slice(0, insertAt),
+      chapter,
+      ...tgtChapters.slice(insertAt),
+    ];
+
+    // Apply DB updates
+    await db.execute("UPDATE chapters SET volume_id = ? WHERE id = ?", [targetVolumeId, chapterId]);
+    await Promise.all([
+      ...srcChapters.map((c, i) => db.execute("UPDATE chapters SET sort_order = ? WHERE id = ?", [i, c.id])),
+      ...newTgtChapters.map((c, i) => db.execute("UPDATE chapters SET sort_order = ? WHERE id = ?", [i, c.id])),
+    ]);
+
+    // Build update map: id → { volume_id, sort_order }
+    const updateMap = new Map<string, { volume_id: string; sort_order: number }>();
+    srcChapters.forEach((c, i) => updateMap.set(c.id, { volume_id: sourceVolumeId, sort_order: i }));
+    newTgtChapters.forEach((c, i) => updateMap.set(c.id, { volume_id: targetVolumeId, sort_order: i }));
+
+    set(state => ({
+      chapters: state.chapters.map(c => {
+        const upd = updateMap.get(c.id);
+        return upd ? { ...c, ...upd } : c;
+      }),
+    }));
+  },
+
+  applyChapterSortOrder: async (items) => {
+    const db = await getDb();
+    await Promise.all(
+      items.map((item) =>
+        db.execute(
+          "UPDATE chapters SET volume_id = ?, sort_order = ? WHERE id = ?",
+          [item.volumeId, item.sortOrder, item.id]
+        )
+      )
+    );
+    set((state) => ({
+      chapters: state.chapters.map((c) => {
+        const item = items.find((i) => i.id === c.id);
+        return item ? { ...c, volume_id: item.volumeId, sort_order: item.sortOrder } : c;
+      }),
+    }));
   },
 
   setChapterStatus: async (chapterId, status) => {

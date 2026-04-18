@@ -170,6 +170,7 @@ export function EditorLayout({ project, onBack }: Props) {
   const showAiPanel = aiPanelOpen && (
     activeFocusedTab?.type === "chapter" ||
     activeFocusedTab?.type === "outline" ||
+    activeFocusedTab?.type === "outlinenode" ||
     activeFocusedTab == null
   );
 
@@ -196,12 +197,9 @@ export function EditorLayout({ project, onBack }: Props) {
               { type: "outline" as const,       label: "大纲" },
               { type: "codex" as const,         label: "百科" },
               { type: "foreshadowing" as const, label: "伏笔" },
-              { type: "inspirations" as const,  label: "灵感" },
               { type: "stats" as const,         label: "统计" },
-              { type: "deconstruct" as const,   label: "拆书" },
               { type: "rules" as const,         label: "规则" },
               { type: "docs" as const,          label: "文档" },
-              { type: "packs" as const,         label: "资源库" },
               { type: "io" as const,            label: "导入导出" },
             ].map((item) => (
               <button
@@ -212,6 +210,12 @@ export function EditorLayout({ project, onBack }: Props) {
                 {item.label}
               </button>
             ))}
+            <button
+              onClick={() => openSingletonTab("toolbox")}
+              className="px-2.5 py-1 text-xs rounded transition-colors text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium"
+            >
+              🧰 工具箱
+            </button>
           </div>
         </div>
 
@@ -248,6 +252,11 @@ export function EditorLayout({ project, onBack }: Props) {
             className="px-2 py-1 text-xs rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500"
             title="设置"
           >⚙</button>
+          <button
+            onClick={() => openSingletonTab("about")}
+            className="px-2 py-1 text-xs rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500"
+            title="关于笔灵"
+          >ℹ</button>
         </div>
       </header>
 

@@ -113,16 +113,19 @@ export function assembleContext(
 ): AssembledContext {
   const chapterText = chapter ? docToText(chapter.content) : "";
   const injectChapter = !USER_PROVIDES_TEXT.has(mode);
-  const isConsistency = mode === "一致性";
 
-  // Consistency mode: full chapter text; others: tail only
+  // These modes need the full chapter text
+  const FULL_CHAPTER_MODES = new Set(["一致性", "章节标题", "爽点检测"]);
+  const isFullChapter = FULL_CHAPTER_MODES.has(mode);
+
+  // Full-chapter modes: full text; others: tail only
   const recentText = injectChapter
-    ? isConsistency ? chapterText : chapterText.slice(-RECENT_CHARS)
+    ? isFullChapter ? chapterText : chapterText.slice(-RECENT_CHARS)
     : "";
 
-  // Consistency mode: inject all entries (grouped by type, capped); others: relevance-scored
+  // Full-chapter modes: inject all entries; others: relevance-scored
   const injectedEntries = chapter
-    ? isConsistency
+    ? isFullChapter
       ? allEntries.slice(0, MAX_CODEX_CONSISTENCY)
       : selectRelevantEntries(allEntries, chapterText)
     : [];
@@ -166,7 +169,7 @@ export function assembleContext(
   }
 
   if (recentText) {
-    const label = isConsistency
+    const label = isFullChapter
       ? `全文内容（${recentText.length} 字）`
       : `最近内容（最后 ${RECENT_CHARS} 字）`;
     parts.push(`\n【${label}】\n${recentText}`);
@@ -193,6 +196,17 @@ export function assembleContext(
 - 若无问题：输出「✅ 本章未发现一致性问题」并简述检查结论
 - 末尾给出 1-2 条修改建议（如有）`,
     自由: "请根据作者的问题或需求提供帮助。",
+    章节标题: `请根据本章节内容，生成 8 个候选章节标题。
+要求：
+- 简洁有力（4-12 字）
+- 有悬念感或情绪冲击，符合网文风格
+- 每个标题后注明侧重点（动作 / 情感 / 悬念 / 反转 等）
+输出格式：逐行列出，如「1. 标题——[侧重点]」`,
+    爽点检测: `请分析本章节的节奏和爽点分布，给出以下内容：
+1. 整体爽度评分（1–10）及一句话评价
+2. 本章的爽点列表（引用原文关键句，说明爽点类型：战斗 / 升级 / 打脸 / 情感 / 反转 等）
+3. 节奏拖沓的具体段落（直接引用原文片段），说明原因
+4. 针对每个拖沓段给出具体改写方向（不需要完整改写，给方向即可）`,
   };
 
   if (modeInstructions[mode]) {

@@ -20,6 +20,8 @@ const MODE_ACTIONS: Partial<Record<ChatMode, { label: string; prompt: string }[]
     { label: "只查人物", prompt: "请只检查当前章节中人物相关的一致性问题（外貌、性格、能力、关系）。" },
     { label: "只查世界观", prompt: "请只检查当前章节中世界观设定的一致性（地名、规则、势力、道具）。" },
   ],
+  章节标题: [{ label: "生成标题候选", prompt: "请根据本章内容生成 8 个候选章节标题。" }],
+  爽点检测: [{ label: "检测本章爽点", prompt: "请分析本章节的节奏和爽点分布。" }],
 };
 
 // Render message content with basic markdown-like formatting
@@ -197,7 +199,7 @@ export function AiPanel() {
               className={`px-2.5 py-1 text-xs rounded-full transition-colors ${
                 mode === m
                   ? "bg-indigo-600 text-white"
-                  : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 dark:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600"
+                  : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
               }`}
             >
               {m}

@@ -60,7 +60,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   writingRules: "",
   dailyGoal: 3000,
   appearance: DEFAULT_APPEARANCE,
-  theme: "system" as ThemeMode,
+  theme: "light" as ThemeMode,
   remoteUrl: "",
   onboardingCompleted: false,
   seenFeatures: [],

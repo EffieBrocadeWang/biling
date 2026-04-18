@@ -13,7 +13,9 @@ export type TabType =
   | "rules"
   | "docs"
   | "packs"
-  | "toolbox";
+  | "toolbox"
+  | "outlinenode"
+  | "about";
 
 export const TAB_LABELS: Record<TabType, string> = {
   chapter: "章节",
@@ -28,6 +30,8 @@ export const TAB_LABELS: Record<TabType, string> = {
   docs: "项目文档",
   packs: "资源库",
   toolbox: "工具箱",
+  outlinenode: "章纲",
+  about: "关于笔灵",
 };
 
 export const TAB_ICONS: Record<TabType, string> = {
@@ -43,12 +47,14 @@ export const TAB_ICONS: Record<TabType, string> = {
   docs: "🗂️",
   packs: "📦",
   toolbox: "🧰",
+  outlinenode: "📋",
+  about: "ℹ️",
 };
 
 // Only one of these can exist across all panels (navigate to existing instead of opening new)
 const SINGLETON_TYPES = new Set<TabType>([
   "outline", "codex", "foreshadowing", "stats",
-  "deconstruct", "inspirations", "io", "rules", "docs", "packs", "toolbox",
+  "deconstruct", "inspirations", "io", "rules", "docs", "packs", "toolbox", "about",
 ]);
 
 export interface Tab {
@@ -80,6 +86,7 @@ interface TabStore {
   // Tab management
   openTab: (spec: Omit<Tab, "id">, panel?: "left" | "right") => void;
   openChapterTab: (chapterId: string, title: string) => void;
+  openOutlineNodeTab: (nodeId: string, title: string) => void;
   closeTab: (tabId: string) => void;
   closeOtherTabs: (tabId: string, panel: "left" | "right") => void;
   closeRightTabs: (tabId: string, panel: "left" | "right") => void;
@@ -175,15 +182,15 @@ export const useTabStore = create<TabStore>((set, get) => ({
       }
     }
 
-    // Chapter tab: if same chapter already open anywhere, activate it
-    if (spec.type === "chapter" && spec.entityId) {
-      const existL = state.leftTabs.find(t => t.type === "chapter" && t.entityId === spec.entityId);
+    // Chapter / outlinenode tab: if same entity already open anywhere, activate it
+    if ((spec.type === "chapter" || spec.type === "outlinenode") && spec.entityId) {
+      const existL = state.leftTabs.find(t => t.type === spec.type && t.entityId === spec.entityId);
       if (existL) {
         set({ activeLeftId: existL.id, focusedPanel: "left" });
         get().save();
         return;
       }
-      const existR = state.rightTabs.find(t => t.type === "chapter" && t.entityId === spec.entityId);
+      const existR = state.rightTabs.find(t => t.type === spec.type && t.entityId === spec.entityId);
       if (existR) {
         set({ activeRightId: existR.id, focusedPanel: "right" });
         get().save();
@@ -203,6 +210,10 @@ export const useTabStore = create<TabStore>((set, get) => ({
 
   openChapterTab: (chapterId, title) => {
     get().openTab({ type: "chapter", entityId: chapterId, title });
+  },
+
+  openOutlineNodeTab: (nodeId, title) => {
+    get().openTab({ type: "outlinenode", entityId: nodeId, title: title || "章纲" });
   },
 
   closeTab: (tabId) => {
@@ -311,13 +322,13 @@ export const useTabStore = create<TabStore>((set, get) => ({
     get().save();
   },
 
-  updateTabTitle: (chapterId, title) => {
+  updateTabTitle: (entityId, title) => {
     set(state => ({
       leftTabs: state.leftTabs.map(t =>
-        t.type === "chapter" && t.entityId === chapterId ? { ...t, title } : t
+        (t.type === "chapter" || t.type === "outlinenode") && t.entityId === entityId ? { ...t, title } : t
       ),
       rightTabs: state.rightTabs.map(t =>
-        t.type === "chapter" && t.entityId === chapterId ? { ...t, title } : t
+        (t.type === "chapter" || t.type === "outlinenode") && t.entityId === entityId ? { ...t, title } : t
       ),
     }));
     get().save();

@@ -19,7 +19,7 @@ import { useTabStore, type Tab, type TabType, TAB_ICONS, TAB_LABELS } from "../.
 // Non-chapter tab types the user can open from the + menu
 const NEW_TAB_OPTIONS: TabType[] = [
   "outline", "codex", "foreshadowing", "stats",
-  "deconstruct", "inspirations", "rules", "docs", "packs", "io", "toolbox",
+  "rules", "docs", "io", "toolbox",
 ];
 
 // ── Sortable tab item ──────────────────────────────────────────────────────

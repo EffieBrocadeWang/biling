@@ -66,36 +66,41 @@ export function ImportExportPanel({ project }: Props) {
   async function handleConfirmImport() {
     if (!importPreview) return;
     setImporting(true);
-    const db = await getDb();
+    try {
+      const db = await getDb();
 
-    // Use first volume, or create one if needed
-    let volumeId: string = volumes[0]?.id ?? "";
-    if (!volumeId) {
-      volumeId = generateId();
-      await db.execute(
-        "INSERT INTO volumes (id, book_id, title, sort_order) VALUES (?, ?, ?, 0)",
-        [volumeId, project.id, "导入内容"]
-      );
+      // Use first volume, or create one if needed
+      let volumeId: string = volumes[0]?.id ?? "";
+      if (!volumeId) {
+        volumeId = generateId();
+        await db.execute(
+          "INSERT INTO volumes (id, book_id, title, sort_order) VALUES (?, ?, ?, 0)",
+          [volumeId, project.id, "导入内容"]
+        );
+      }
+
+      // Get current max sort_order for the volume
+      const existing = chapters.filter((c) => c.volume_id === volumeId);
+      let sortOrder = existing.length;
+
+      for (const ch of importPreview) {
+        const content = textToTiptapDoc(ch.content);
+        const wc = ch.content.replace(/\s/g, "").length;
+        const chapterId = generateId();
+        await db.execute(
+          "INSERT INTO chapters (id, book_id, volume_id, title, content, word_count, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          [chapterId, project.id, volumeId, ch.title, content, wc, sortOrder++]
+        );
+      }
+
+      await loadProjectData(project.id);
+      setImportDone(true);
+      setImportPreview(null);
+    } catch (err) {
+      console.error("Import failed:", err);
+    } finally {
+      setImporting(false);
     }
-
-    // Get current max sort_order for the volume
-    const existing = chapters.filter((c) => c.volume_id === volumeId);
-    let sortOrder = existing.length;
-
-    for (const ch of importPreview) {
-      const content = textToTiptapDoc(ch.content);
-      const wc = ch.content.replace(/\s/g, "").length;
-      const chapterId = generateId();
-      await db.execute(
-        "INSERT INTO chapters (id, book_id, volume_id, title, content, word_count, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [chapterId, project.id, volumeId, ch.title, content, wc, sortOrder++]
-      );
-    }
-
-    await loadProjectData(project.id);
-    setImporting(false);
-    setImportDone(true);
-    setImportPreview(null);
   }
 
   async function handleExport() {

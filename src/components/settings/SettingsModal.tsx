@@ -191,18 +191,36 @@ export function SettingsModal({ onClose }: Props) {
                 </p>
                 <div className="space-y-2">
                   <div>
-                    <label className="block text-xs text-gray-600 mb-1">代理服务器地址</label>
+                    <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">代理服务器地址</label>
                     <div className="flex gap-2">
                       <input
                         type="text"
                         value={remoteUrlDraft}
                         onChange={(e) => { setRemoteUrlDraft(e.target.value); setTestStatus("idle"); }}
-                        placeholder="http://192.168.1.100:3000"
-                        className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        placeholder="https://xxxx.ngrok-free.app"
+                        className="flex-1 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-sm font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       />
                       <button
                         onClick={async () => { await setRemoteUrl(remoteUrlDraft); }}
-                        className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+                        className="px-3 py-1.5 text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg transition-colors"
+                      >
+                        保存
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">访问令牌</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        value={keyDraft["remote"] ?? ""}
+                        onChange={(e) => { setKeyDraft((d) => ({ ...d, remote: e.target.value })); setTestStatus("idle"); }}
+                        placeholder="biling-test-2026"
+                        className="flex-1 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-sm font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                      <button
+                        onClick={() => saveKey("remote")}
+                        className="px-3 py-1.5 text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg transition-colors"
                       >
                         保存
                       </button>

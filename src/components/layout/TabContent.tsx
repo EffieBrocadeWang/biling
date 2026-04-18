@@ -12,6 +12,8 @@ import { WritingRulesPanel } from "../rules/WritingRulesPanel";
 import { ProjectDocsPanel } from "../docs/ProjectDocsPanel";
 import { WritingPacksPanel } from "../packs/WritingPacksPanel";
 import { ToolboxPanel } from "../toolbox/ToolboxPanel";
+import { OutlineNodePanel } from "../outline/OutlineNodePanel";
+import { AboutPanel } from "../about/AboutPanel";
 
 interface TabContentProps {
   tabs: Tab[];
@@ -99,7 +101,13 @@ export function TabContent({ tabs, activeId, project, onCaptureOpen, onOpenSetti
               <WritingPacksPanel projectId={project.id} />
             )}
             {tab.type === "toolbox" && (
-              <ToolboxPanel project={project} />
+              <ToolboxPanel project={project} onCaptureOpen={onCaptureOpen} />
+            )}
+            {tab.type === "outlinenode" && tab.entityId && (
+              <OutlineNodePanel nodeId={tab.entityId} />
+            )}
+            {tab.type === "about" && (
+              <AboutPanel />
             )}
           </div>
         );
