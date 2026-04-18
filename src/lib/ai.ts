@@ -71,7 +71,10 @@ function getHeaders(model: AIModel, apiKey: string): Record<string, string> {
   }
   // Ollama accepts any Bearer token (or none); remote uses access token
   const key = model.provider === "ollama" ? "ollama" : apiKey;
-  return { ...base, Authorization: `Bearer ${key}` };
+  const headers: Record<string, string> = { ...base, Authorization: `Bearer ${key}` };
+  // ngrok free tier shows a browser warning page unless this header is set
+  if (model.provider === "remote") headers["ngrok-skip-browser-warning"] = "true";
+  return headers;
 }
 
 // Build request body (OpenAI-compatible for most; Anthropic format for Claude)

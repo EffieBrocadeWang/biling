@@ -73,7 +73,10 @@ export function SettingsModal({ onClose }: Props) {
     try {
       const token = keyDraft["remote"] ?? "";
       const res = await fetch(`${url}/v1/models`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: {
+          "ngrok-skip-browser-warning": "true",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         signal: AbortSignal.timeout(5000),
       });
       setTestStatus(res.ok ? "ok" : "fail");
