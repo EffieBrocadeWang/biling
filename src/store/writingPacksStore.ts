@@ -160,11 +160,11 @@ export const useWritingPacksStore = create<WritingPacksStore>((set, get) => ({
   seedBuiltinPacks: async () => {
     const db = await getDb();
     for (const { manifest, items } of BUILTIN_PACKS) {
-      // Skip if already installed
-      const existing = await db.select<{ id: string }[]>(
-        "SELECT id FROM writing_packs WHERE id = ?", [manifest.id]
+      const existing = await db.select<{ id: string; version: string }[]>(
+        "SELECT id, version FROM writing_packs WHERE id = ?", [manifest.id]
       );
-      if (existing.length > 0) continue;
+      // Re-install when missing or version changed (fixes stale/duplicate items from old seeds)
+      if (existing.length > 0 && existing[0].version === manifest.version) continue;
       await get().installPack(manifest, items);
     }
   },

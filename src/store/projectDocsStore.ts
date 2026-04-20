@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { getDb, generateId } from "../lib/db";
 
 export type DocType =
+  | "story_synopsis"
   | "writing_rules"
   | "style_guide"
   | "canon_log"
@@ -26,6 +27,7 @@ export interface ProjectDoc {
 }
 
 export const DOC_TYPE_LABELS: Record<DocType, string> = {
+  story_synopsis:   "故事梗概",
   writing_rules:    "写作铁律",
   style_guide:      "文笔风格指南",
   canon_log:        "已确定事实",
@@ -37,12 +39,13 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
 };
 
 export const DOC_TYPE_ICONS: Record<DocType, string> = {
+  story_synopsis:   "📖",
   writing_rules:    "📜",
   style_guide:      "✍️",
   canon_log:        "🔒",
   relationship_map: "🕸️",
   plot_threads:     "🧵",
-  reference_notes:  "📖",
+  reference_notes:  "📚",
   writing_log:      "📔",
   custom:           "📄",
 };
@@ -63,6 +66,25 @@ export const AI_INJECTION_COLORS: Record<AiInjection, string> = {
 
 // Default template content for each doc type
 export const DOC_TYPE_TEMPLATES: Record<DocType, string> = {
+  story_synopsis: `# 故事梗概
+
+## 核心故事
+（描述主线故事）
+
+## 主角
+- 姓名：
+- 起点：
+- 目标：
+- 核心矛盾：
+
+## 关键转折
+1.
+2.
+3.
+
+## 结局方向
+`,
+
   writing_rules: `# 写作铁律
 
 ## 文笔
@@ -166,6 +188,7 @@ interface ProjectDocsStore {
   loading: boolean;
 
   loadDocs: (bookId: string) => Promise<void>;
+  ensureSynopsisDoc: (bookId: string, synopsis: string) => Promise<void>;
   createDoc: (
     bookId: string,
     docType: DocType,
@@ -198,6 +221,32 @@ export const useProjectDocsStore = create<ProjectDocsStore>((set, get) => ({
     } finally {
       set({ loading: false });
     }
+  },
+
+  ensureSynopsisDoc: async (bookId, synopsis) => {
+    if (!synopsis.trim()) return;
+    const db = await getDb();
+    const existing = await db.select<ProjectDoc[]>(
+      "SELECT * FROM project_docs WHERE book_id = ? AND doc_type = 'story_synopsis' LIMIT 1",
+      [bookId]
+    );
+    if (existing.length > 0) {
+      if (!existing[0].content.trim()) {
+        await db.execute(
+          "UPDATE project_docs SET content = ?, updated_at = datetime('now') WHERE id = ?",
+          [synopsis, existing[0].id]
+        );
+      }
+    } else {
+      const id = generateId();
+      await db.execute(
+        `INSERT INTO project_docs (id, book_id, doc_type, title, content, ai_injection, sort_order)
+         VALUES (?, ?, 'story_synopsis', '故事梗概', ?, 'always', 0)`,
+        [id, bookId, synopsis]
+      );
+    }
+    // Reload store so UI reflects the change
+    await get().loadDocs(bookId);
   },
 
   createDoc: async (bookId, docType, title, content, aiInjection) => {

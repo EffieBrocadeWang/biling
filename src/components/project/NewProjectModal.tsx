@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useProjectStore } from "../../store/projectStore";
 import { useSettingsStore } from "../../store/settingsStore";
+import { useProjectDocsStore } from "../../store/projectDocsStore";
 import { getPresetForGenre } from "../../lib/genrePresets";
 import { BUILTIN_PACKS } from "../../lib/builtinPacks";
 
@@ -22,6 +23,7 @@ interface Props {
 export function NewProjectModal({ onClose, onCreated }: Props) {
   const { createProject } = useProjectStore();
   const { writingRules, setWritingRules } = useSettingsStore();
+  const { ensureSynopsisDoc } = useProjectDocsStore();
   const [name, setName] = useState(""); // maps to 'title' field
   const [genre, setGenre] = useState("玄幻");
   const [synopsis, setSynopsis] = useState("");
@@ -40,6 +42,9 @@ export function NewProjectModal({ onClose, onCreated }: Props) {
         const preset = getPresetForGenre(genre);
         const merged = writingRules.trim() ? `${writingRules.trim()}\n\n# ${genre}预设\n${preset}` : `# ${genre}写作规则\n${preset}`;
         await setWritingRules(merged);
+      }
+      if (synopsis.trim()) {
+        await ensureSynopsisDoc(project.id, synopsis.trim());
       }
       setSubmitting(false);
       onCreated(project.id);

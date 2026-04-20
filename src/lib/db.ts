@@ -249,7 +249,7 @@ async function createTables(db: Database) {
     CREATE TABLE IF NOT EXISTS project_docs (
       id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
       book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
-      doc_type TEXT NOT NULL CHECK (doc_type IN ('writing_rules','style_guide','canon_log','relationship_map','plot_threads','reference_notes','writing_log','custom')),
+      doc_type TEXT NOT NULL,
       title TEXT NOT NULL,
       content TEXT NOT NULL DEFAULT '',
       ai_injection TEXT NOT NULL DEFAULT 'none' CHECK (ai_injection IN ('always','contextual','manual','none')),
@@ -421,5 +421,55 @@ async function migrateOldTables(db: Database) {
       `);
       await db.execute(`ALTER TABLE daily_stats RENAME TO _migrated_daily_stats`);
     } catch { /* ignore */ }
+  }
+
+  // project_docs: remove restrictive doc_type CHECK constraint (v3 — replaces v2)
+  // Probe whether story_synopsis can be inserted; if the CHECK constraint still exists, migrate.
+  {
+    const sentinel = await db.select<{ value: string }[]>(
+      "SELECT value FROM settings WHERE key = 'migration_project_docs_v3' LIMIT 1"
+    );
+    if (sentinel.length === 0) {
+      let needsMigration = false;
+      try {
+        await db.execute(
+          "INSERT INTO project_docs (id, book_id, doc_type, title, content, ai_injection, sort_order) VALUES ('__probe__','__probe__','story_synopsis','__probe__','','none',0)"
+        );
+        await db.execute("DELETE FROM project_docs WHERE id = '__probe__'");
+      } catch {
+        needsMigration = true;
+      }
+
+      if (needsMigration) {
+        try {
+          await db.execute(`PRAGMA foreign_keys = OFF`);
+          await db.execute(`DROP TABLE IF EXISTS project_docs_new`);
+          await db.execute(`
+            CREATE TABLE project_docs_new (
+              id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+              book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+              doc_type TEXT NOT NULL,
+              title TEXT NOT NULL,
+              content TEXT NOT NULL DEFAULT '',
+              ai_injection TEXT NOT NULL DEFAULT 'none' CHECK (ai_injection IN ('always','contextual','manual','none')),
+              sort_order INTEGER DEFAULT 0,
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+          `);
+          await db.execute(`INSERT OR IGNORE INTO project_docs_new SELECT * FROM project_docs`);
+          await db.execute(`DROP TABLE project_docs`);
+          await db.execute(`ALTER TABLE project_docs_new RENAME TO project_docs`);
+          await db.execute(`PRAGMA foreign_keys = ON`);
+        } catch (e) {
+          await db.execute(`PRAGMA foreign_keys = ON`);
+          console.error("project_docs migration failed:", e);
+        }
+      }
+
+      await db.execute(
+        `INSERT OR REPLACE INTO settings (key, value) VALUES ('migration_project_docs_v3', '1')`
+      );
+    }
   }
 }

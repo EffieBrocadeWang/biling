@@ -2,10 +2,97 @@ import { useEffect, useState, useRef } from "react";
 import { useOutlineStore } from "../../store/outlineStore";
 import { useEditorStore } from "../../store/editorStore";
 import { useSettingsStore } from "../../store/settingsStore";
+import { useProjectDocsStore } from "../../store/projectDocsStore";
 import { aiStream } from "../../lib/ai";
+import { OutlineAssistant } from "./OutlineAssistant";
 import type { OutlineNode } from "../../types";
 
 interface ChatMessage { role: "user" | "assistant"; content: string; }
+interface RawNode { title: string; content?: string; children?: RawNode[] }
+interface OutlineOp {
+  op: "update" | "add" | "delete";
+  id?: string;
+  parentId?: string | null;
+  title?: string;
+  content?: string;
+}
+
+function parseRawNodes(raw: string): RawNode[] | null {
+  let json = raw.trim();
+  const fence = json.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) json = fence[1].trim();
+  // Find last complete JSON array
+  const start = json.indexOf("[");
+  const end = json.lastIndexOf("]");
+  if (start === -1 || end === -1 || end < start) return null;
+  try {
+    return JSON.parse(json.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+function PreviewTree({ nodes, depth = 0 }: { nodes: RawNode[]; depth?: number }) {
+  const indents = ["", "ml-4", "ml-8"];
+  const colors = [
+    "font-semibold text-slate-700 dark:text-slate-300",
+    "font-medium text-slate-600 dark:text-slate-400",
+    "text-gray-600 dark:text-gray-300",
+  ];
+  const badges = ["全书大纲", "卷纲", "章纲"];
+  return (
+    <>
+      {nodes.map((node, i) => (
+        <div key={i} className={depth > 0 ? indents[Math.min(depth, 2)] : ""}>
+          <div className="flex items-start gap-1.5 py-0.5">
+            <span className="shrink-0 text-xs px-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500">{badges[Math.min(depth, 2)]}</span>
+            <span className={`text-xs ${colors[Math.min(depth, 2)]}`}>{node.title || "未命名"}</span>
+            {node.content && <span className="text-xs text-gray-400 dark:text-gray-500 truncate">— {node.content}</span>}
+          </div>
+          {node.children && node.children.length > 0 && (
+            <PreviewTree nodes={node.children} depth={depth + 1} />
+          )}
+        </div>
+      ))}
+    </>
+  );
+}
+
+function parseOutlineOps(raw: string): OutlineOp[] | null {
+  let json = raw.trim();
+  const fence = json.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) json = fence[1].trim();
+  const start = json.indexOf("[");
+  const end = json.lastIndexOf("]");
+  if (start === -1 || end === -1 || end < start) return null;
+  try {
+    return JSON.parse(json.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+function formatOutlineWithIds(nodes: OutlineNode[], projectId: string): string {
+  const flat = nodes.filter(n => n.book_id === projectId);
+  if (flat.length === 0) return "（尚无大纲节点）";
+  function render(node: OutlineNode, indent: string): string {
+    const levelLabel = ["", "全书大纲", "卷纲", "章纲"][node.level] ?? "";
+    const desc = node.content ? `：${node.content}` : "";
+    let text = `${indent}[id=${node.id}] [${levelLabel}] ${node.title || "未命名"}${desc}`;
+    (node.children ?? []).slice().sort((a, b) => a.sort_order - b.sort_order)
+      .forEach(c => { text += "\n" + render(c, indent + "  "); });
+    return text;
+  }
+  const map = new Map<string, OutlineNode>();
+  flat.forEach(n => map.set(n.id, { ...n, children: [] }));
+  const roots: OutlineNode[] = [];
+  flat.forEach(n => {
+    const node = map.get(n.id)!;
+    if (n.parent_id == null) roots.push(node);
+    else map.get(n.parent_id)?.children?.push(node);
+  });
+  return roots.slice().sort((a, b) => a.sort_order - b.sort_order).map(r => render(r, "")).join("\n");
+}
 
 function formatOutlineForPrompt(nodes: OutlineNode[], projectId: string): string {
   const flat = nodes.filter((n) => n.book_id === projectId);
@@ -234,13 +321,16 @@ interface Props {
 }
 
 export function OutlinePanel({ projectId, projectName, projectGenre, projectSynopsis }: Props) {
-  const { tree, nodes, load, addNode, removeNode: _remove } = useOutlineStore();
+  const { tree, nodes, load, addNode, removeNode, updateNode } = useOutlineStore();
   const { chapters } = useEditorStore();
   const { getActiveModel, getKeyForModel } = useSettingsStore();
+  const { docs, loadDocs, ensureSynopsisDoc } = useProjectDocsStore();
   const [generating, setGenerating] = useState(false);
   const [aiOutput, setAiOutput] = useState("");
   const [aiError, setAiError] = useState("");
   const [showAiPreview, setShowAiPreview] = useState(false);
+  const [previewTree, setPreviewTree] = useState<RawNode[] | null>(null);
+  const [showAssistant, setShowAssistant] = useState(false);
 
   // AI chat state
   const [showChat, setShowChat] = useState(false);
@@ -250,9 +340,22 @@ export function OutlinePanel({ projectId, projectName, projectGenre, projectSyno
   const chatEndRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Apply-to-outline state
+  const [applyLoading, setApplyLoading] = useState(false);
+  const [pendingOps, setPendingOps] = useState<OutlineOp[] | null>(null);
+  const [applyError, setApplyError] = useState("");
+
   useEffect(() => {
     load(projectId);
+    loadDocs(projectId);
   }, [projectId]);
+
+  // Migrate: if synopsis exists but no story_synopsis doc yet, create it silently
+  useEffect(() => {
+    if (projectSynopsis && docs.length > 0) {
+      ensureSynopsisDoc(projectId, projectSynopsis);
+    }
+  }, [projectId, projectSynopsis, docs.length]);
 
   const roots = tree
     .filter((n) => n.book_id === projectId && n.parent_id == null)
@@ -275,12 +378,17 @@ export function OutlinePanel({ projectId, projectName, projectGenre, projectSyno
     // Build character list from codex if available (basic fallback: just use chapters)
     const chapterList = chapters.slice(0, 20).map((c) => c.title).join("、") || "（暂无章节）";
 
-    const prompt = `你是一位资深网文大纲策划。请根据以下信息，生成一份完整的小说大纲。
+    // Use synopsis doc content if available, otherwise fall back to book synopsis field
+    const synopsisDoc = docs.find(d => d.book_id === projectId && d.doc_type === "story_synopsis");
+    const synopsisContent = synopsisDoc?.content?.trim() || projectSynopsis || "（暂无简介）";
+
+    const prompt = `你是一位资深网文大纲策划。请根据以下信息，生成一份完整的小说大纲。严格依照故事梗概的设定来规划，不要自行发明与梗概无关的情节。
 
 作品信息：
 - 书名：${projectName}
 - 类型：${projectGenre}
-- 简介：${projectSynopsis || "（暂无简介）"}
+- 故事梗概：
+${synopsisContent}
 - 已有章节：${chapterList}
 
 要求：
@@ -310,6 +418,7 @@ export function OutlinePanel({ projectId, projectName, projectGenre, projectSyno
     setGenerating(true);
     setAiError("");
     setAiOutput("");
+    setPreviewTree(null);
     setShowAiPreview(true);
 
     try {
@@ -326,6 +435,7 @@ export function OutlinePanel({ projectId, projectName, projectGenre, projectSyno
         },
       });
       setAiOutput(full);
+      setPreviewTree(parseRawNodes(full));
     } catch (err: unknown) {
       setAiError(err instanceof Error ? err.message : "AI 生成失败");
     } finally {
@@ -334,16 +444,8 @@ export function OutlinePanel({ projectId, projectName, projectGenre, projectSyno
   }
 
   async function importAiOutline() {
-    // parse JSON from aiOutput (strip markdown code fences if present)
-    let json = aiOutput.trim();
-    const fence = json.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (fence) json = fence[1].trim();
-
-    interface RawNode { title: string; content?: string; children?: RawNode[] }
-    let parsed: RawNode[];
-    try {
-      parsed = JSON.parse(json);
-    } catch {
+    const parsed = parseRawNodes(aiOutput);
+    if (!parsed) {
       setAiError("解析 JSON 失败，请检查 AI 输出格式");
       return;
     }
@@ -376,12 +478,15 @@ export function OutlinePanel({ projectId, projectName, projectGenre, projectSyno
     if (!key) return;
 
     const outlineText = formatOutlineForPrompt(nodes, projectId);
+    const synopsisDoc = docs.find(d => d.book_id === projectId && d.doc_type === "story_synopsis");
+    const synopsisContent = synopsisDoc?.content?.trim() || projectSynopsis || "（暂无）";
     const systemPrompt = `你是专业网文大纲顾问，帮助作者完善《${projectName}》（${projectGenre}类）大纲。
 
 当前大纲：
 ${outlineText}
 
-简介：${projectSynopsis || "（暂无）"}
+故事梗概：
+${synopsisContent}
 
 回复要求：中文，简洁直接，不超过150字，不废话，给具体建议。`;
 
@@ -427,6 +532,91 @@ ${outlineText}
     }
   }
 
+  async function handleApplyToOutline(msgContent: string) {
+    const model = getActiveModel();
+    if (!model) return;
+    const key = model.provider === "ollama" ? "ollama" : getKeyForModel(model);
+    if (!key) return;
+
+    setApplyLoading(true);
+    setPendingOps(null);
+    setApplyError("");
+
+    const outlineWithIds = formatOutlineWithIds(nodes, projectId);
+    const synopsisDoc = docs.find(d => d.book_id === projectId && d.doc_type === "story_synopsis");
+    const synopsisContent = synopsisDoc?.content?.trim() || projectSynopsis || "（暂无）";
+
+    const prompt = `你是专业网文大纲编辑。请根据建议，对当前大纲做精准的局部修改，只改动需要改动的节点。
+
+【当前大纲（含节点ID）】
+${outlineWithIds}
+
+【故事梗概】
+${synopsisContent}
+
+【需要应用的建议】
+${msgContent}
+
+请生成一个操作列表，每个操作为以下三种之一：
+- update：修改已有节点（必须提供 id）
+- add：新增节点（提供 parentId，null 表示添加到根级别）
+- delete：删除节点（必须提供 id）
+
+严格用以下 JSON 数组格式，不要有任何其他文字：
+[
+  { "op": "update", "id": "节点id", "title": "新标题", "content": "新描述" },
+  { "op": "add", "parentId": "父节点id或null", "title": "新节点标题", "content": "描述" },
+  { "op": "delete", "id": "节点id" }
+]
+
+注意：只输出需要改动的操作，未改动的节点不要包含在内。`;
+
+    try {
+      let full = "";
+      await aiStream({
+        model,
+        apiKey: key,
+        messages: [{ role: "user", content: prompt }],
+        maxTokens: 1500,
+        temperature: 0.5,
+        onChunk: (delta) => { full += delta; },
+      });
+      const parsed = parseOutlineOps(full);
+      if (parsed && parsed.length > 0) {
+        setPendingOps(parsed);
+      } else {
+        setApplyError("无法解析修改操作，请重试");
+      }
+    } catch (err) {
+      setApplyError(err instanceof Error ? err.message : "生成失败");
+    } finally {
+      setApplyLoading(false);
+    }
+  }
+
+  async function handleConfirmApply() {
+    if (!pendingOps) return;
+    const nodeMap = new Map(nodes.filter(n => n.book_id === projectId).map(n => [n.id, n]));
+    for (const op of pendingOps) {
+      if (op.op === "update" && op.id) {
+        const patch: { title?: string; content?: string } = {};
+        if (op.title !== undefined) patch.title = op.title;
+        if (op.content !== undefined) patch.content = op.content;
+        await updateNode(op.id, patch);
+      } else if (op.op === "add") {
+        const parent = op.parentId ? nodeMap.get(op.parentId) : null;
+        const level = parent ? Math.min(parent.level + 1, 3) as 1 | 2 | 3 : 1;
+        const n = await addNode(projectId, op.parentId ?? null, level);
+        await updateNode(n.id, { title: op.title ?? "", content: op.content ?? "" });
+        nodeMap.set(n.id, { ...n, title: op.title ?? "", content: op.content ?? "" });
+      } else if (op.op === "delete" && op.id) {
+        await removeNode(op.id);
+        nodeMap.delete(op.id);
+      }
+    }
+    setPendingOps(null);
+  }
+
   return (
     <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-800">
       {/* Header */}
@@ -437,9 +627,15 @@ ${outlineText}
             三级结构：全书大纲 → 卷纲 → 章纲
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap justify-end">
           <button
-            onClick={() => { setShowChat((v) => !v); setTimeout(() => chatInputRef.current?.focus(), 100); }}
+            onClick={() => { setShowAssistant((v) => !v); setShowChat(false); }}
+            className={`text-xs px-3 py-1.5 rounded transition-colors ${showAssistant ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600"}`}
+          >
+            🧭 大纲助手
+          </button>
+          <button
+            onClick={() => { setShowChat((v) => !v); setShowAssistant(false); setTimeout(() => chatInputRef.current?.focus(), 100); }}
             className={`text-xs px-3 py-1.5 rounded transition-colors ${showChat ? "bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600"}`}
           >
             💬 AI 对话
@@ -455,28 +651,48 @@ ${outlineText}
             onClick={handleAddRoot}
             className="text-xs px-3 py-1.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600"
           >
-            + 添加大纲
+            + 添加
           </button>
         </div>
       </div>
+
+      {/* Outline assistant panel */}
+      {showAssistant && (
+        <div className="shrink-0 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 max-h-96 overflow-y-auto">
+          <OutlineAssistant
+            projectId={projectId}
+            projectName={projectName}
+            projectGenre={projectGenre}
+            projectSynopsis={projectSynopsis}
+          />
+        </div>
+      )}
 
       {/* AI preview panel */}
       {showAiPreview && (
         <div className="shrink-0 border-b border-gray-200 dark:border-gray-700 bg-amber-50 dark:bg-amber-900/20 p-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-amber-700 dark:text-amber-400">AI 生成预览</span>
-            <button onClick={() => setShowAiPreview(false)} className="text-xs text-gray-400 hover:text-gray-600">✕</button>
+            <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
+              {generating ? "✦ AI 正在生成大纲…" : previewTree ? "预览 — 确认后点击「导入大纲」" : "AI 生成预览"}
+            </span>
+            <button onClick={() => { setShowAiPreview(false); setPreviewTree(null); }} className="text-xs text-gray-400 hover:text-gray-600">✕</button>
           </div>
           {aiError && <p className="text-xs text-red-500 mb-2">{aiError}</p>}
-          {generating ? (
-            <div className="text-xs text-amber-600 dark:text-amber-400 py-4 text-center animate-pulse">
-              ✦ AI 正在创作大纲，请稍候…
+          {generating && (
+            <div className="text-xs text-amber-600 dark:text-amber-400 py-3 text-center animate-pulse">
+              正在构建大纲结构，请稍候…
             </div>
-          ) : aiOutput && !aiError ? (
-            <div className="text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-800 rounded p-2 max-h-48 overflow-y-auto">
-              大纲已生成，点击「导入大纲」添加到树中
+          )}
+          {!generating && previewTree && !aiError && (
+            <div className="bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-800 rounded p-3 max-h-56 overflow-y-auto">
+              <PreviewTree nodes={previewTree} />
             </div>
-          ) : null}
+          )}
+          {!generating && !previewTree && aiOutput && !aiError && (
+            <div className="text-xs text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-800 rounded p-2 max-h-32 overflow-y-auto font-mono">
+              {aiOutput}
+            </div>
+          )}
           {!generating && aiOutput && !aiError && (
             <div className="flex gap-2 mt-2">
               <button
@@ -559,20 +775,92 @@ ${outlineText}
               </div>
             ) : (
               chatMessages.map((msg, i) => (
-                <div
-                  key={i}
-                  className={`rounded-lg px-3 py-2 text-xs leading-relaxed ${
-                    msg.role === "user"
-                      ? "bg-indigo-600 text-white ml-6 self-end"
-                      : "bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 mr-6"
-                  }`}
-                >
-                  {msg.content || (msg.role === "assistant" && chatLoading ? <span className="opacity-50 animate-pulse">思考中…</span> : "")}
+                <div key={i} className={msg.role === "user" ? "ml-6" : "mr-6"}>
+                  <div
+                    className={`rounded-lg px-3 py-2 text-xs leading-relaxed ${
+                      msg.role === "user"
+                        ? "bg-indigo-600 text-white"
+                        : "bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200"
+                    }`}
+                  >
+                    {msg.content || (msg.role === "assistant" && chatLoading ? <span className="opacity-50 animate-pulse">思考中…</span> : "")}
+                  </div>
+                  {msg.role === "assistant" && msg.content && !chatLoading && (
+                    <button
+                      onClick={() => handleApplyToOutline(msg.content)}
+                      disabled={applyLoading}
+                      className="mt-1 text-xs px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors disabled:opacity-50"
+                    >
+                      {applyLoading ? "处理中…" : "📥 应用到大纲"}
+                    </button>
+                  )}
                 </div>
               ))
             )}
             <div ref={chatEndRef} />
           </div>
+
+          {/* Apply preview panel */}
+          {(applyLoading || pendingOps || applyError) && (
+            <div className="shrink-0 border-t border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/20 px-3 py-2.5 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300">
+                  {applyLoading ? "✦ 正在分析需要改动的节点…" : `预览改动（${pendingOps?.length ?? 0} 处）`}
+                </span>
+                <button
+                  onClick={() => { setPendingOps(null); setApplyError(""); }}
+                  className="text-xs text-gray-400 hover:text-gray-600"
+                >✕</button>
+              </div>
+              {applyError && <p className="text-xs text-red-500">{applyError}</p>}
+              {applyLoading && <p className="text-xs text-indigo-500 animate-pulse text-center py-2">正在生成精准修改操作…</p>}
+              {pendingOps && (
+                <>
+                  <div className="bg-white dark:bg-gray-900 border border-indigo-200 dark:border-indigo-800 rounded p-2 max-h-40 overflow-y-auto space-y-1">
+                    {pendingOps.map((op, i) => {
+                      const existingNode = nodes.find(n => n.id === op.id);
+                      if (op.op === "update") return (
+                        <div key={i} className="flex items-start gap-1.5">
+                          <span className="shrink-0 text-xs px-1 rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400">改</span>
+                          <span className="text-xs text-gray-600 dark:text-gray-300">
+                            <span className="line-through text-gray-400 dark:text-gray-500 mr-1">{existingNode?.title || op.id}</span>
+                            → {op.title ?? existingNode?.title}
+                            {op.content && <span className="text-gray-400 dark:text-gray-500"> — {op.content}</span>}
+                          </span>
+                        </div>
+                      );
+                      if (op.op === "add") {
+                        const parent = nodes.find(n => n.id === op.parentId);
+                        return (
+                          <div key={i} className="flex items-start gap-1.5">
+                            <span className="shrink-0 text-xs px-1 rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">增</span>
+                            <span className="text-xs text-gray-600 dark:text-gray-300">
+                              {op.title}
+                              {op.content && <span className="text-gray-400 dark:text-gray-500"> — {op.content}</span>}
+                              <span className="text-gray-400 dark:text-gray-500 ml-1">（在「{parent?.title || "根级别"}」下）</span>
+                            </span>
+                          </div>
+                        );
+                      }
+                      if (op.op === "delete") return (
+                        <div key={i} className="flex items-start gap-1.5">
+                          <span className="shrink-0 text-xs px-1 rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">删</span>
+                          <span className="text-xs line-through text-gray-400 dark:text-gray-500">{existingNode?.title || op.id}</span>
+                        </div>
+                      );
+                      return null;
+                    })}
+                  </div>
+                  <button
+                    onClick={handleConfirmApply}
+                    className="w-full text-xs px-3 py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
+                  >
+                    确认应用这 {pendingOps.length} 处改动
+                  </button>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Input */}
           <div className="px-3 pb-3 pt-2 border-t border-gray-100 dark:border-gray-800 flex gap-2 items-end">

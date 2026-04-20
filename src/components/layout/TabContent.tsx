@@ -91,7 +91,7 @@ export function TabContent({ tabs, activeId, project, onCaptureOpen, onOpenSetti
             )}
             {tab.type === "rules" && (
               <div className="flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-800">
-                <WritingRulesPanel />
+                <WritingRulesPanel projectGenre={project.genre} />
               </div>
             )}
             {tab.type === "docs" && (

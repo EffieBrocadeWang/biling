@@ -306,52 +306,49 @@ function computeOutlineSort(
   const sortedVols = [...volumes].sort((a, b) => a.sort_order - b.sort_order);
   if (!sortedVols.length) return [];
 
-  // Walk outline tree in order: level1 → level2 (卷纲) → level3 (章纲)
-  // Each level-2 maps to a volume by its global index among all level-2 nodes
-  const linkedOrder: { chapterId: string; volId: string }[] = [];
+  // Build a global chapter order by walking the full outline tree DFS.
+  // Chapters stay in their current sidebar volumes — we only sort within each volume
+  // by the position their linked 章纲 node occupies in the outline.
+  const globalOrder: string[] = []; // chapter IDs in outline DFS order
   const linkedSet = new Set<string>();
 
   const level1 = allNodes.filter((n) => n.level === 1 && n.parent_id == null)
     .sort((a, b) => a.sort_order - b.sort_order);
 
-  let vol2Idx = 0;
   for (const l1 of level1) {
     const level2 = allNodes.filter((n) => n.parent_id === l1.id && n.level === 2)
       .sort((a, b) => a.sort_order - b.sort_order);
     for (const l2 of level2) {
-      const targetVolId = (sortedVols[vol2Idx] ?? sortedVols[sortedVols.length - 1]).id;
       const level3 = allNodes.filter((n) => n.parent_id === l2.id && n.level === 3)
         .sort((a, b) => a.sort_order - b.sort_order);
       for (const l3 of level3) {
         if (l3.linked_chapter_id && chapters.some((c) => c.id === l3.linked_chapter_id)) {
-          linkedOrder.push({ chapterId: l3.linked_chapter_id, volId: targetVolId });
+          globalOrder.push(l3.linked_chapter_id);
           linkedSet.add(l3.linked_chapter_id);
         }
       }
-      vol2Idx++;
     }
   }
 
-  // Per-volume: linked chapters first (in outline order), then unlinked at end
-  const result: SortItem[] = [];
-  const volLinked = new Map<string, string[]>();
-  for (const { chapterId, volId } of linkedOrder) {
-    if (!volLinked.has(volId)) volLinked.set(volId, []);
-    volLinked.get(volId)!.push(chapterId);
-  }
+  // rankMap: chapterId → position in globalOrder (lower = earlier in outline)
+  const rankMap = new Map(globalOrder.map((id, i) => [id, i]));
 
+  // Per-volume: linked chapters sorted by outline rank, then unlinked at end
+  const result: SortItem[] = [];
   for (const vol of sortedVols) {
-    const linked = volLinked.get(vol.id) ?? [];
-    const unlinked = chapters
-      .filter((c) => c.volume_id === vol.id && !linkedSet.has(c.id))
-      .sort((a, b) => a.sort_order - b.sort_order)
-      .map((c) => c.id);
-    [...linked, ...unlinked].forEach((id, idx) => {
-      result.push({ id, volumeId: vol.id, sortOrder: idx });
+    const volChapters = chapters.filter((c) => c.volume_id === vol.id);
+    const linked = volChapters
+      .filter((c) => linkedSet.has(c.id))
+      .sort((a, b) => (rankMap.get(a.id) ?? Infinity) - (rankMap.get(b.id) ?? Infinity));
+    const unlinked = volChapters
+      .filter((c) => !linkedSet.has(c.id))
+      .sort((a, b) => a.sort_order - b.sort_order);
+    [...linked, ...unlinked].forEach((c, idx) => {
+      result.push({ id: c.id, volumeId: vol.id, sortOrder: idx });
     });
   }
 
-  // Safety: any chapters not covered (shouldn't happen)
+  // Safety: any chapters not covered
   for (const ch of chapters) {
     if (!result.find((r) => r.id === ch.id)) {
       result.push({ id: ch.id, volumeId: ch.volume_id, sortOrder: 999 });

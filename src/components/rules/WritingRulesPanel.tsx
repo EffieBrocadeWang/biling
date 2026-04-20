@@ -1,13 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSettingsStore } from "../../store/settingsStore";
 import { GENRE_PRESETS } from "../../lib/genrePresets";
 
 const PRESETS = Object.entries(GENRE_PRESETS).map(([label, text]) => ({ label, text }));
 
-export function WritingRulesPanel() {
+interface Props {
+  projectGenre?: string;
+}
+
+export function WritingRulesPanel({ projectGenre }: Props) {
   const { writingRules, setWritingRules, loaded, load } = useSettingsStore();
   const [draft, setDraft] = useState(writingRules);
   const [saved, setSaved] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!loaded) load();
@@ -28,6 +34,17 @@ export function WritingRulesPanel() {
     setDraft(merged);
   }
 
+  function handleClear() {
+    if (confirmClear) {
+      if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+      setDraft("");
+      setConfirmClear(false);
+    } else {
+      setConfirmClear(true);
+      clearTimerRef.current = setTimeout(() => setConfirmClear(false), 3000);
+    }
+  }
+
   return (
     <div className="max-w-2xl mx-auto px-6 py-8">
       <div className="mb-6">
@@ -38,19 +55,22 @@ export function WritingRulesPanel() {
       </div>
 
       {/* Presets */}
-      <div className="mb-4 flex items-center gap-3">
-        <p className="text-xs font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500 shrink-0">加载预设</p>
+      <div className="mb-4 flex items-center gap-3 flex-wrap">
+        <p className="text-xs font-medium text-gray-500 dark:text-gray-400 shrink-0">加载预设</p>
         <select
-          className="text-xs border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 bg-white dark:bg-gray-900 outline-none focus:border-indigo-400 text-gray-600 dark:text-gray-300 dark:text-gray-600"
+          className="text-xs border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 bg-white dark:bg-gray-900 outline-none focus:border-indigo-400 text-gray-600 dark:text-gray-300"
           defaultValue=""
           onChange={(e) => { if (e.target.value) { applyPreset(e.target.value); e.target.value = ""; } }}
         >
           <option value="" disabled>选择类型…</option>
-          {PRESETS.map((p) => (
+          {projectGenre && GENRE_PRESETS[projectGenre] && (
+            <option value={GENRE_PRESETS[projectGenre]}>✦ {projectGenre}（当前书籍类型）</option>
+          )}
+          {PRESETS.filter((p) => p.label !== projectGenre).map((p) => (
             <option key={p.label} value={p.text}>{p.label}</option>
           ))}
         </select>
-        <span className="text-xs text-gray-400 dark:text-gray-500">（追加到现有规则末尾）</span>
+        <span className="text-xs text-gray-400 dark:text-gray-500">（追加到末尾）</span>
       </div>
 
       {/* Rules textarea */}
@@ -67,10 +87,21 @@ export function WritingRulesPanel() {
           {draft.trim() ? `${draft.trim().split("\n").filter(Boolean).length} 条规则` : "暂无规则"}
         </p>
         <div className="flex items-center gap-3">
+          <button
+            onClick={handleClear}
+            className={`text-xs transition-colors ${
+              confirmClear
+                ? "text-red-500 font-medium"
+                : "text-gray-400 dark:text-gray-500 hover:text-red-400"
+            }`}
+            title="清空所有规则"
+          >
+            {confirmClear ? "再次点击确认清空" : "清空"}
+          </button>
           {draft !== writingRules && (
             <button
               onClick={() => setDraft(writingRules)}
-              className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 dark:text-gray-300 dark:text-gray-600"
+              className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
             >
               重置
             </button>

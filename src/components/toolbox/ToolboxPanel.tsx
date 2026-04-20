@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { NamingTool } from "./NamingTool";
+import { BookCopyTool } from "./BookCopyTool";
 import { DeconstructPanel } from "../deconstruct/DeconstructPanel";
 import { InspirationsPanel } from "../inspiration/InspirationsPanel";
 import { WritingPacksPanel } from "../packs/WritingPacksPanel";
 import type { Book } from "../../types";
 
-type ToolId = "naming" | "deconstruct" | "inspirations" | "packs";
+type ToolId = "naming" | "deconstruct" | "inspirations" | "packs" | "bookcopy";
 
 interface Tool {
   id: ToolId;
@@ -19,6 +20,7 @@ const TOOLS: Tool[] = [
   { id: "inspirations",icon: "💡", label: "灵感",    desc: "记录创作灵感" },
   { id: "packs",       icon: "📦", label: "资源库",  desc: "写作包 · 素材" },
   { id: "deconstruct", icon: "🔍", label: "拆书",    desc: "AI 分析参考书" },
+  { id: "bookcopy",    icon: "📖", label: "抄书",    desc: "借鉴参考书稿" },
 ];
 
 interface Props {
@@ -89,6 +91,9 @@ export function ToolboxPanel({ project, onCaptureOpen }: Props) {
           )}
           {activeTool === "packs" && (
             <WritingPacksPanel projectId={project.id} />
+          )}
+          {activeTool === "bookcopy" && (
+            <BookCopyTool projectId={project.id} />
           )}
         </div>
       </div>

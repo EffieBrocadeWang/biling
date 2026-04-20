@@ -18,6 +18,7 @@ interface Props {
 }
 
 const DOC_TYPE_OPTIONS: DocType[] = [
+  "story_synopsis",
   "writing_rules",
   "style_guide",
   "canon_log",
@@ -38,6 +39,7 @@ export function ProjectDocsPanel({ projectId }: Props) {
   const [showNewForm, setShowNewForm] = useState(false);
   const [newDocType, setNewDocType] = useState<DocType>("custom");
   const [newTitle, setNewTitle] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
 
   // Edit state for selected doc
   const [draftTitle, setDraftTitle] = useState("");
@@ -72,13 +74,19 @@ export function ProjectDocsPanel({ projectId }: Props) {
   }, [docs]);
 
   async function handleCreate() {
+    setCreateError(null);
     const title = newTitle.trim() || DOC_TYPE_LABELS[newDocType];
     const content = DOC_TYPE_TEMPLATES[newDocType];
-    const doc = await createDoc(projectId, newDocType, title, content, "none");
-    setSelectedId(doc.id);
-    setShowNewForm(false);
-    setNewTitle("");
-    setNewDocType("custom");
+    try {
+      const doc = await createDoc(projectId, newDocType, title, content,
+        newDocType === "story_synopsis" ? "always" : "none");
+      setSelectedId(doc.id);
+      setShowNewForm(false);
+      setNewTitle("");
+      setNewDocType("custom");
+    } catch (err) {
+      setCreateError(String(err));
+    }
   }
 
   function handleContentChange(val: string) {
@@ -189,6 +197,9 @@ export function ProjectDocsPanel({ projectId }: Props) {
               onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") setShowNewForm(false); }}
               autoFocus
             />
+            {createError && (
+              <p className="text-xs text-red-500 bg-red-50 dark:bg-red-900/20 rounded px-2 py-1 break-all">{createError}</p>
+            )}
             <div className="flex gap-1.5">
               <button
                 onClick={handleCreate}
@@ -197,7 +208,7 @@ export function ProjectDocsPanel({ projectId }: Props) {
                 创建
               </button>
               <button
-                onClick={() => { setShowNewForm(false); setNewTitle(""); }}
+                onClick={() => { setShowNewForm(false); setNewTitle(""); setCreateError(null); }}
                 className="flex-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded px-2 py-1 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
               >
                 取消

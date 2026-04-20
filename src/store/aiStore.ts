@@ -7,9 +7,9 @@ export interface ChatMessage {
   loading?: boolean;
 }
 
-export type ChatMode = "续写" | "润色" | "扩写" | "缩写" | "对话" | "情节" | "一致性" | "自由" | "卡文" | "章节标题" | "爽点检测";
+export type ChatMode = "续写" | "润色" | "扩写" | "缩写" | "对话" | "情节" | "一致性" | "自由" | "卡文" | "章节标题" | "爽点检测" | "大纲生成";
 
-export const CHAT_MODES: ChatMode[] = ["续写", "润色", "扩写", "缩写", "对话", "情节", "一致性", "自由", "卡文", "章节标题", "爽点检测"];
+export const CHAT_MODES: ChatMode[] = ["续写", "润色", "扩写", "缩写", "对话", "情节", "一致性", "自由", "卡文", "章节标题", "爽点检测", "大纲生成"];
 
 export const MODE_HINTS: Record<ChatMode, string> = {
   续写: "直接点击「续写」，或告诉我从哪里开始续写",
@@ -23,6 +23,7 @@ export const MODE_HINTS: Record<ChatMode, string> = {
   卡文: "点击「分析」，AI 根据当前章节、伏笔和大纲给出 5 个方向",
   章节标题: "点击「生成标题」，AI 根据本章内容生成 8 个候选标题",
   爽点检测: "点击「检测」，AI 分析本章节奏、爽点密度和慢节奏区段",
+  大纲生成: "点击「生成本章」，AI 读取大纲 + 前后章节上下文，为本章生成正文初稿",
 };
 
 export interface PendingQuote {

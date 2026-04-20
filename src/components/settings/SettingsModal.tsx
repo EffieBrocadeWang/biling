@@ -44,6 +44,8 @@ export function SettingsModal({ onClose }: Props) {
   const [remoteUrlDraft, setRemoteUrlDraft] = useState(remoteUrl);
   const [testStatus, setTestStatus] = useState<"idle" | "testing" | "ok" | "fail">("idle");
   const [ollamaAvailable, setOllamaAvailable] = useState(false);
+  const [dsBalance, setDsBalance] = useState<string | null>(null);
+  const [dsBalanceLoading, setDsBalanceLoading] = useState(false);
   const probed = useRef(false);
 
   useEffect(() => {
@@ -96,6 +98,31 @@ export function SettingsModal({ onClose }: Props) {
       setTestStatus(res.ok ? "ok" : "fail");
     } catch {
       setTestStatus("fail");
+    }
+  }
+
+  async function fetchDsBalance() {
+    const key = ((keyDraft["deepseek"] ?? "").trim()) || (providerKeys.find(p => p.provider === "deepseek")?.key ?? "");
+    if (!key) return;
+    setDsBalanceLoading(true);
+    setDsBalance(null);
+    try {
+      const res = await fetch("https://api.deepseek.com/user/balance", {
+        headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) { setDsBalance("查询失败"); return; }
+      const data = await res.json() as { balance_infos?: { total_balance?: string; currency?: string }[] };
+      const info = data.balance_infos?.[0];
+      if (info?.total_balance !== undefined) {
+        setDsBalance(`${info.total_balance} ${info.currency ?? "CNY"}`);
+      } else {
+        setDsBalance("—");
+      }
+    } catch {
+      setDsBalance("查询失败");
+    } finally {
+      setDsBalanceLoading(false);
     }
   }
 
@@ -183,21 +210,39 @@ export function SettingsModal({ onClose }: Props) {
                           无需 API 密钥 — 直接使用本地 Ollama 服务 (localhost:11434)
                         </div>
                       ) : (
-                        <div className="flex gap-2">
-                          <input
-                            type="password"
-                            value={keyDraft[p.id] ?? ""}
-                            onChange={(e) => setKeyDraft((d) => ({ ...d, [p.id]: e.target.value }))}
-                            placeholder={p.placeholder}
-                            className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                          />
-                          <button
-                            onClick={() => saveKey(p.id)}
-                            className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
-                          >
-                            保存
-                          </button>
-                        </div>
+                        <>
+                          <div className="flex gap-2">
+                            <input
+                              type="password"
+                              value={keyDraft[p.id] ?? ""}
+                              onChange={(e) => setKeyDraft((d) => ({ ...d, [p.id]: e.target.value }))}
+                              placeholder={p.placeholder}
+                              className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            />
+                            <button
+                              onClick={() => saveKey(p.id)}
+                              className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+                            >
+                              保存
+                            </button>
+                          </div>
+                          {p.id === "deepseek" && (
+                            <div className="flex items-center gap-2 mt-1.5">
+                              <button
+                                onClick={fetchDsBalance}
+                                disabled={dsBalanceLoading || !(keyDraft["deepseek"] || providerKeys.find(pk => pk.provider === "deepseek")?.key)}
+                                className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded transition-colors disabled:opacity-40"
+                              >
+                                {dsBalanceLoading ? "查询中…" : "查询余额"}
+                              </button>
+                              {dsBalance && (
+                                <span className={`text-xs font-medium ${dsBalance === "查询失败" ? "text-red-500" : "text-green-600"}`}>
+                                  💰 {dsBalance}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   ))}

@@ -21,6 +21,12 @@ export function dispatchInsertText(text: string) {
   window.dispatchEvent(new CustomEvent(INSERT_TEXT_EVENT, { detail: text }));
 }
 
+// Custom event for AI panel → editor replace all content
+export const REPLACE_CONTENT_EVENT = "biling:replace-content";
+export function dispatchReplaceContent(text: string) {
+  window.dispatchEvent(new CustomEvent(REPLACE_CONTENT_EVENT, { detail: text }));
+}
+
 export function countWords(text: string): number {
   const cjk = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length;
   const latin = text
@@ -309,6 +315,22 @@ export function ChapterEditor({ chapterId }: Props) {
     }
     window.addEventListener(INSERT_TEXT_EVENT, handleInsert);
     return () => window.removeEventListener(INSERT_TEXT_EVENT, handleInsert);
+  }, [editor]);
+
+  // Replace all content from AI panel (大纲生成)
+  useEffect(() => {
+    function handleReplace(e: Event) {
+      const text = (e as CustomEvent<string>).detail;
+      if (!editor || !text) return;
+      const paragraphs = text.split("\n").map((line) => ({
+        type: "paragraph",
+        content: line ? [{ type: "text", text: line }] : [],
+      }));
+      editor.commands.setContent({ type: "doc", content: paragraphs });
+      editor.commands.focus("end");
+    }
+    window.addEventListener(REPLACE_CONTENT_EVENT, handleReplace);
+    return () => window.removeEventListener(REPLACE_CONTENT_EVENT, handleReplace);
   }, [editor]);
 
   // Cmd+S manual save
